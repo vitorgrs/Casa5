@@ -102,14 +102,34 @@ export async function ensureBankReportConfig() {
   });
 }
 
+function toMercadoPagoUtcIso(date: Date) {
+  // A API documenta o formato UTC sem milissegundos, por exemplo:
+  // 2019-05-01T00:00:00Z.
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 export async function generateBankReport(days = 35) {
+  // O relatório de Liberações aceita no máximo 60 dias.
+  const safeDays = Math.min(Math.max(Math.trunc(days), 1), 59);
   const end = new Date();
   const begin = new Date(end);
-  begin.setDate(begin.getDate() - days);
+  begin.setUTCDate(begin.getUTCDate() - safeDays);
 
-  await mpFetch(RELEASE_REPORT_PATH, {
+  const beginDate = toMercadoPagoUtcIso(begin);
+  const endDate = toMercadoPagoUtcIso(end);
+  const payload = {
+    begin_date: beginDate,
+    end_date: endDate
+  };
+
+  // Algumas contas/versões do gateway do Mercado Pago não reconhecem os
+  // campos somente no JSON. Enviá-los também na query mantém compatibilidade,
+  // enquanto o corpo continua conforme a documentação oficial.
+  const query = new URLSearchParams(payload).toString();
+
+  await mpFetch(`${RELEASE_REPORT_PATH}?${query}`, {
     method: "POST",
-    body: JSON.stringify({ begin_date: begin.toISOString(), end_date: end.toISOString() })
+    body: JSON.stringify(payload)
   });
 }
 
