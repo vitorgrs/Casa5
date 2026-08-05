@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 
 function money(value: FormDataEntryValue | null): number | null {
-  let text = String(value ?? "").trim().replace(/\s/g, "");
+  let text = String(value ?? "")
+    .trim()
+    .replace(/\s/g, "");
   if (!text) return null;
   if (text.includes(",") && text.includes(".")) {
     text = text.replace(/\./g, "").replace(",", ".");
@@ -26,11 +28,13 @@ function makeShares(formData: FormData, amount: number | null, mode: string) {
   if (mode === "custom") {
     const shares = memberIds.map((memberId) => ({
       member_id: memberId,
-      amount: money(formData.get(`share_${memberId}`)) ?? 0
+      amount: money(formData.get(`share_${memberId}`)) ?? 0,
     }));
     const total = shares.reduce((sum, share) => sum + share.amount, 0);
     if (Math.abs(total - amount) > 0.01) {
-      throw new Error(`A divisão personalizada soma R$ ${total.toFixed(2)}, mas a despesa é R$ ${amount.toFixed(2)}.`);
+      throw new Error(
+        `A divisão personalizada soma R$ ${total.toFixed(2)}, mas a despesa é R$ ${amount.toFixed(2)}.`,
+      );
     }
     return shares;
   }
@@ -68,16 +72,17 @@ export async function createExpense(formData: FormData) {
       status: amount === null ? "planned" : "open",
       recurrence,
       series_id: recurrence === "monthly" ? crypto.randomUUID() : null,
-      created_by: profile.id
+      created_by: profile.id,
     })
     .select("id")
     .single();
 
-  if (error || !expense) throw new Error(error?.message ?? "Não foi possível criar a despesa.");
+  if (error || !expense)
+    throw new Error(error?.message ?? "Não foi possível criar a despesa.");
   if (shares.length) {
-    const { error: shareError } = await supabase.from("expense_shares").insert(
-      shares.map((share) => ({ ...share, expense_id: expense.id }))
-    );
+    const { error: shareError } = await supabase
+      .from("expense_shares")
+      .insert(shares.map((share) => ({ ...share, expense_id: expense.id })));
     if (shareError) throw new Error(shareError.message);
   }
 
@@ -91,15 +96,32 @@ export async function updateExpense(formData: FormData) {
   const splitMode = String(formData.get("split_mode") ?? "equal");
   const shares = makeShares(formData, amount, splitMode);
 
-  const [{ data: currentShares }, { data: currentExpense }] = await Promise.all([
-    supabase
-      .from("expense_shares")
-      .select("member_id,payment_status,paid_at,payment_method,note")
-      .eq("expense_id", expenseId),
-    supabase.from("expenses").select("series_id").eq("id", expenseId).single()
-  ]);
-  type PreviousShare = { member_id: string; payment_status: string; paid_at: string | null; payment_method: string | null; note: string | null };
-  const previous = new Map<string, PreviousShare>((currentShares ?? []).map((share: PreviousShare) => [share.member_id, share]));
+  const [{ data: currentShares }, { data: currentExpense }] = await Promise.all(
+    [
+      supabase
+        .from("expense_shares")
+        .select("member_id,payment_status,paid_at,payment_method,note")
+        .eq("expense_id", expenseId),
+      supabase
+        .from("expenses")
+        .select("series_id")
+        .eq("id", expenseId)
+        .single(),
+    ],
+  );
+  type PreviousShare = {
+    member_id: string;
+    payment_status: string;
+    paid_at: string | null;
+    payment_method: string | null;
+    note: string | null;
+  };
+  const previous = new Map<string, PreviousShare>(
+    (currentShares ?? []).map((share: PreviousShare) => [
+      share.member_id,
+      share,
+    ]),
+  );
 
   const { error } = await supabase
     .from("expenses")
@@ -114,9 +136,10 @@ export async function updateExpense(formData: FormData) {
       split_mode: splitMode,
       status: amount === null ? "planned" : "open",
       recurrence: String(formData.get("recurrence") ?? "once"),
-      series_id: String(formData.get("recurrence") ?? "once") === "monthly"
-        ? (currentExpense?.series_id ?? crypto.randomUUID())
-        : currentExpense?.series_id
+      series_id:
+        String(formData.get("recurrence") ?? "once") === "monthly"
+          ? (currentExpense?.series_id ?? crypto.randomUUID())
+          : currentExpense?.series_id,
     })
     .eq("id", expenseId)
     .eq("household_id", profile.household_id);
@@ -134,9 +157,9 @@ export async function updateExpense(formData: FormData) {
           payment_status: old?.payment_status ?? "pending",
           paid_at: old?.paid_at ?? null,
           payment_method: old?.payment_method ?? null,
-          note: old?.note ?? null
+          note: old?.note ?? null,
         };
-      })
+      }),
     );
     if (shareError) throw new Error(shareError.message);
   }
@@ -153,19 +176,27 @@ export async function setPaymentStatus(formData: FormData) {
     .update({
       payment_status: status,
       paid_at: status === "paid" ? new Date().toISOString() : null,
-      payment_method: status === "paid" ? "Mercado Pago / Pix" : null
+      payment_method: status === "paid" ? "Mercado Pago / Pix" : null,
     })
     .eq("id", shareId)
     .select("expense_id")
     .single();
-  if (error || !changed) throw new Error(error?.message ?? "Pagamento não encontrado.");
+  if (error || !changed)
+    throw new Error(error?.message ?? "Pagamento não encontrado.");
 
   const { data: shares } = await supabase
     .from("expense_shares")
     .select("payment_status")
     .eq("expense_id", changed.expense_id);
-  const settled = (shares ?? []).length > 0 && (shares ?? []).every((share) => ["paid", "waived"].includes(share.payment_status));
-  await supabase.from("expenses").update({ status: settled ? "paid" : "open" }).eq("id", changed.expense_id);
+  const settled =
+    (shares ?? []).length > 0 &&
+    (shares ?? []).every((share) =>
+      ["paid", "waived"].includes(share.payment_status),
+    );
+  await supabase
+    .from("expenses")
+    .update({ status: settled ? "paid" : "open" })
+    .eq("id", changed.expense_id);
 
   revalidatePath("/app/despesas");
 }

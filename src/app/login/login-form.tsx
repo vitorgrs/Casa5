@@ -15,11 +15,16 @@ export function LoginForm() {
     setError(null);
 
     const formData = new FormData(event.currentTarget);
-    const email = String(formData.get("email") ?? "").trim().toLowerCase();
+    const email = String(formData.get("email") ?? "")
+      .trim()
+      .toLowerCase();
     const password = String(formData.get("password") ?? "");
     const supabase = createClient();
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     if (signInError) {
       setError("E-mail ou senha inválidos.");
       setPending(false);
@@ -33,9 +38,30 @@ export function LoginForm() {
   return (
     <form className="stack-form" onSubmit={handleSubmit}>
       {error && <div className="message error">{error}</div>}
-      <label>E-mail<input name="email" type="email" required placeholder="voce@email.com" autoComplete="email" /></label>
-      <label>Senha<input name="password" type="password" required minLength={8} placeholder="••••••••" autoComplete="current-password" /></label>
-      <button className="button primary wide" type="submit" disabled={pending}>{pending ? "Entrando..." : "Entrar"}</button>
+      <label>
+        E-mail
+        <input
+          name="email"
+          type="email"
+          required
+          placeholder="voce@email.com"
+          autoComplete="email"
+        />
+      </label>
+      <label>
+        Senha
+        <input
+          name="password"
+          type="password"
+          required
+          minLength={8}
+          placeholder="••••••••"
+          autoComplete="current-password"
+        />
+      </label>
+      <button className="button primary wide" type="submit" disabled={pending}>
+        {pending ? "Entrando..." : "Entrar"}
+      </button>
     </form>
   );
 }
