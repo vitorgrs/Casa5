@@ -53,7 +53,7 @@ export function ExpenseForm({
   expense?: Expense;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const allowMismatchRef = useRef(false);
+  const allowMismatchInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState(expense?.split_mode ?? "equal");
   const [amount, setAmount] = useState(expense?.amount?.toFixed(2) ?? "");
   const selectedInitially = useMemo(
@@ -104,30 +104,38 @@ export function ExpenseForm({
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    const allowCustomMismatch = allowMismatchInputRef.current?.value === "1";
     if (hardValidationError) {
       event.preventDefault();
+      if (allowMismatchInputRef.current) allowMismatchInputRef.current.value = "0";
       setError(hardValidationError);
       return;
     }
-    if (splitMismatchMessage && !allowMismatchRef.current) {
+    if (splitMismatchMessage && !allowCustomMismatch) {
       event.preventDefault();
+      if (allowMismatchInputRef.current) allowMismatchInputRef.current.value = "0";
       setError(splitMismatchMessage);
       setShowMismatchModal(true);
       return;
     }
-    allowMismatchRef.current = false;
     setError(null);
   }
 
   function confirmMismatch() {
     setShowMismatchModal(false);
-    allowMismatchRef.current = true;
+    if (allowMismatchInputRef.current) allowMismatchInputRef.current.value = "1";
     formRef.current?.requestSubmit();
   }
 
   return (
     <>
       <form ref={formRef} action={action} onSubmit={handleSubmit}>
+        <input
+          ref={allowMismatchInputRef}
+          type="hidden"
+          name="allow_custom_mismatch"
+          defaultValue="0"
+        />
         {expense && (
           <input type="hidden" name="expense_id" value={expense.id} />
         )}
@@ -306,7 +314,12 @@ export function ExpenseForm({
               <button
                 type="button"
                 className="button ghost"
-                onClick={() => setShowMismatchModal(false)}
+                onClick={() => {
+                  if (allowMismatchInputRef.current) {
+                    allowMismatchInputRef.current.value = "0";
+                  }
+                  setShowMismatchModal(false);
+                }}
               >
                 Cancelar
               </button>

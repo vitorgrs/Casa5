@@ -21,7 +21,12 @@ function firstDay(value: string) {
   return /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
 }
 
-function makeShares(formData: FormData, amount: number | null, mode: string) {
+function makeShares(
+  formData: FormData,
+  amount: number | null,
+  mode: string,
+  allowCustomMismatch: boolean,
+) {
   const memberIds = formData.getAll("members").map(String);
   if (!amount || memberIds.length === 0) return [];
 
@@ -31,7 +36,7 @@ function makeShares(formData: FormData, amount: number | null, mode: string) {
       amount: money(formData.get(`share_${memberId}`)) ?? 0,
     }));
     const total = shares.reduce((sum, share) => sum + share.amount, 0);
-    if (Math.abs(total - amount) > 0.01) {
+    if (Math.abs(total - amount) > 0.01 && !allowCustomMismatch) {
       throw new Error(
         `A divisão personalizada soma R$ ${total.toFixed(2)}, mas a despesa é R$ ${amount.toFixed(2)}.`,
       );
@@ -55,7 +60,9 @@ export async function createExpense(formData: FormData) {
   const amount = money(formData.get("amount"));
   const splitMode = String(formData.get("split_mode") ?? "equal");
   const recurrence = String(formData.get("recurrence") ?? "once");
-  const shares = makeShares(formData, amount, splitMode);
+  const allowCustomMismatch =
+    String(formData.get("allow_custom_mismatch") ?? "0") === "1";
+  const shares = makeShares(formData, amount, splitMode, allowCustomMismatch);
 
   const { data: expense, error } = await supabase
     .from("expenses")
@@ -94,7 +101,9 @@ export async function updateExpense(formData: FormData) {
   const expenseId = String(formData.get("expense_id"));
   const amount = money(formData.get("amount"));
   const splitMode = String(formData.get("split_mode") ?? "equal");
-  const shares = makeShares(formData, amount, splitMode);
+  const allowCustomMismatch =
+    String(formData.get("allow_custom_mismatch") ?? "0") === "1";
+  const shares = makeShares(formData, amount, splitMode, allowCustomMismatch);
 
   const [{ data: currentShares }, { data: currentExpense }] = await Promise.all(
     [
