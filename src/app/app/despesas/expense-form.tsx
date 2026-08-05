@@ -17,6 +17,20 @@ type Expense = {
   split_mode: "equal" | "custom";
   recurrence: "once" | "monthly";
   expense_shares: Share[];
+  refund?: {
+    exists: boolean;
+    total_amount: number | null;
+    description: string | null;
+    responsible_entity: string | null;
+    due_date: string | null;
+    reference: string | null;
+    status: string;
+    requested_at: string | null;
+    received_at: string | null;
+    received_amount: number | null;
+    distributed_at: string | null;
+    members_data: any;
+  };
 };
 
 const categories = [
@@ -229,6 +243,63 @@ export function ExpenseForm({
             />
           </label>
         </div>
+
+        {/* CAMPOS DE REEMBOLSO */}
+        <div className="form-section" style={{ marginTop: 20, borderTop: "1px solid #ddd", paddingTop: 16 }}>
+          <h4>Reembolso</h4>
+          <div className="form-grid cols-2">
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                name="refund_exists"
+                defaultChecked={expense?.refund?.exists}
+              />{" "} Existe reembolso?
+            </label>
+            <label className="field">
+              Valor total previsto do reembolso
+              <input
+                type="text"
+                inputMode="decimal"
+                name="refund_total_amount"
+                defaultValue={expense?.refund?.total_amount?.toFixed(2) ?? ""}
+                placeholder="0,00"
+              />
+            </label>
+            <label className="field span-2">
+              Descrição ou motivo
+              <textarea
+                name="refund_description"
+                defaultValue={expense?.refund?.description ?? ""}
+                placeholder="Motivo do reembolso"
+              />
+            </label>
+            <label className="field span-2">
+              Entidade responsável
+              <input
+                name="refund_responsible_entity"
+                defaultValue={expense?.refund?.responsible_entity ?? ""}
+                placeholder="Ex.: Condomínio, Empresa, etc."
+              />
+            </label>
+            <label className="field">
+              Prazo
+              <input
+                name="refund_due_date"
+                type="date"
+                defaultValue={expense?.refund?.due_date ?? ""}
+              />
+            </label>
+            <label className="field">
+              Referência / Comprovante
+              <input
+                name="refund_reference"
+                defaultValue={expense?.refund?.reference ?? ""}
+                placeholder="URL ou descrição do comprovante"
+              />
+            </label>
+          </div>
+        </div>
+
         <div className="form-section">
           <h4>Quem participa desta divisão?</h4>
           <div className="member-check-grid">
@@ -246,6 +317,7 @@ export function ExpenseForm({
             ))}
           </div>
         </div>
+
         {parsedAmount > 0 && (
           <div className="form-section">
             <h4>

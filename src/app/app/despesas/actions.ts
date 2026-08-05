@@ -75,6 +75,14 @@ export async function createExpense(formData: FormData) {
     String(formData.get("allow_custom_mismatch") ?? "0") === "1";
   const shares = makeShares(formData, amount, splitMode, allowCustomMismatch);
 
+  // Campos de reembolso
+  const refundExists = formData.get("refund_exists") === "on";
+  const refundTotalAmount = money(formData.get("refund_total_amount"));
+  const refundDescription = String(formData.get("refund_description") ?? "") || null;
+  const refundResponsibleEntity = String(formData.get("refund_responsible_entity") ?? "") || null;
+  const refundDueDate = String(formData.get("refund_due_date") ?? "") || null;
+  const refundReference = String(formData.get("refund_reference") ?? "") || null;
+
   const { data: expense, error } = await supabase
     .from("expenses")
     .insert({
@@ -97,11 +105,52 @@ export async function createExpense(formData: FormData) {
 
   if (error || !expense)
     throw new Error(error?.message ?? "Não foi possível criar a despesa.");
+
   if (shares.length) {
     const { error: shareError } = await supabase
       .from("expense_shares")
       .insert(shares.map((share) => ({ ...share, expense_id: expense.id })));
     if (shareError) throw new Error(shareError.message);
+  }
+
+  // Criar reembolso se solicitado
+  if (refundExists) {
+    const { data: refund, error: refundError } = await supabase
+      .from("expense_refunds")
+      .insert({
+        expense_id: expense.id,
+        household_id: profile.household_id,
+        total_amount: refundTotalAmount,
+        description: refundDescription,
+        responsible_entity: refundResponsibleEntity,
+        due_date: refundDueDate,
+        reference: refundReference,
+        status: 'a_solicitar',
+        requested_by: profile.id,
+        created_by: profile.id,
+        updated_by: profile.id,
+      })
+      .select("id")
+      .single();
+
+    if (refundError || !refund)
+      throw new Error(refundError?.message ?? "Não foi possível criar o reembolso.");
+
+    // Criar tarefa geral automaticamente
+    await supabase
+      .from("tasks_tasks")
+      .insert({
+        household_id: profile.household_id,
+        title: `Solicitar o reembolso da despesa ${title}.`,
+        description: refundDescription || `Despesa: ${title}\nValor: R$ ${refundTotalAmount?.toFixed(2)}`,
+        due_date: refundDueDate,
+        assigned_to: [], // será preenchido automaticamente
+        priority: 'medium',
+        status: 'pending',
+        created_by: profile.id,
+        expense_refund_id: refund.id,
+        updated_by: profile.id,
+      });
   }
 
   revalidatePath(pathOf(returnTo));
@@ -235,6 +284,50 @@ export async function deleteExpense(formData: FormData) {
     .eq("id", String(formData.get("expense_id")))
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
+}
+
+export async function updateRefundStatus(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
+  const { profile, supabase } = await requireAdmin();
+  const refundId = String(formData.get("refund_id"));
+  const status = String(formData.get("status"));
+  const receivedAmount = money(formData.get("received_amount"));
+  const receivedAt = String(formData.get("received_at") ?? "") || null;
+  const distributedAt = String(formData.get("distributed_at") ?? "") || null;
+  const note = String(formData.get("note") ?? "") || null;
+
+  const updateData: any = {
+    status,
+    updated_by: profile.id,
+  };
+
+  if (status === "solicitado" && receivedAt) updateData.requested_at = receivedAt;
+  if (status === "recebido" || status === "distribuido") {
+    if (receivedAmount) updateData.received_amount = receivedAmount;
+    if (receivedAt) updateData.received_at = receivedAt;
+  }
+  if (status === "distribuido" && distributedAt) updateData.distributed_at = distributedAt;
+
+  if (note) updateData.note = note;
+
+  const { error } = await supabase
+    .from("expense_refunds")
+    .update(updateData)
+    .eq("id", refundId)
+    .eq("household_id", profile.household_id);
+
+  if (error) throw new Error(error.message);
+
+  // Se o reembolso for marcado como "distribuido", atualizar a tarefa correspondente
+  if (status === "distribuido") {
+    await supabase
+      .from("tasks_tasks")
+      .update({ status: "completed" })
+      .eq("expense_refund_id", refundId);
+  }
+
   revalidatePath(pathOf(returnTo));
   redirect(returnTo);
 }
