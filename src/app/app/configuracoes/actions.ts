@@ -5,6 +5,15 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
 
+function destination(formData: FormData, fallback: string) {
+  const value = String(formData.get("redirect_to") ?? "");
+  return value.startsWith("/app") ? value : fallback;
+}
+
+function pathOf(url: string) {
+  return url.split("?")[0] || "/app";
+}
+
 function valueToMoney(value: FormDataEntryValue | null) {
   let text = String(value ?? "")
     .trim()
@@ -18,6 +27,7 @@ function valueToMoney(value: FormDataEntryValue | null) {
 }
 
 export async function addManualBalance(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes");
   const { profile, supabase } = await requireAdmin();
   const { error } = await supabase.from("wallet_snapshots").insert({
     household_id: profile.household_id,
@@ -27,7 +37,8 @@ export async function addManualBalance(formData: FormData) {
     created_by: profile.id,
   });
   if (error) throw new Error(error.message);
-  revalidatePath("/app/configuracoes");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }
 
 export async function syncMercadoPago() {

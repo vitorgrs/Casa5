@@ -1,9 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 
+function destination(formData: FormData, fallback: string) {
+  const value = String(formData.get("redirect_to") ?? "");
+  return value.startsWith("/app") ? value : fallback;
+}
+
+function pathOf(url: string) {
+  return url.split("?")[0] || "/app";
+}
+
 export async function createChore(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza");
   const { profile, supabase } = await requireAdmin();
   const memberIds = formData.getAll("members").map(String);
   const { data: chore, error } = await supabase
@@ -37,10 +48,12 @@ export async function createChore(formData: FormData) {
     if (assignmentError) throw new Error(assignmentError.message);
   }
 
-  revalidatePath("/app/limpeza");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }
 
 export async function checkInChore(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza");
   const { profile, supabase } = await requireAdmin();
   const choreId = String(formData.get("chore_id"));
   const memberId = String(formData.get("member_id"));
@@ -68,10 +81,12 @@ export async function checkInChore(formData: FormData) {
   );
   if (error) throw new Error(error.message);
 
-  revalidatePath("/app/limpeza");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }
 
 export async function deleteChore(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza");
   const { profile, supabase } = await requireAdmin();
   const { error } = await supabase
     .from("chores")
@@ -79,5 +94,6 @@ export async function deleteChore(formData: FormData) {
     .eq("id", String(formData.get("chore_id")))
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);
-  revalidatePath("/app/limpeza");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }

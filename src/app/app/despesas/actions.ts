@@ -1,7 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+
+function destination(formData: FormData, fallback: string) {
+  const value = String(formData.get("redirect_to") ?? "");
+  return value.startsWith("/app") ? value : fallback;
+}
+
+function pathOf(url: string) {
+  return url.split("?")[0] || "/app";
+}
 
 function money(value: FormDataEntryValue | null): number | null {
   let text = String(value ?? "")
@@ -55,6 +65,7 @@ function makeShares(
 }
 
 export async function createExpense(formData: FormData) {
+    const returnTo = destination(formData, "/app/despesas");
   const { profile, supabase } = await requireAdmin();
   const title = String(formData.get("title") ?? "").trim();
   const amount = money(formData.get("amount"));
@@ -93,10 +104,12 @@ export async function createExpense(formData: FormData) {
     if (shareError) throw new Error(shareError.message);
   }
 
-  revalidatePath("/app/despesas");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }
 
 export async function updateExpense(formData: FormData) {
+    const returnTo = destination(formData, "/app/despesas");
   const { profile, supabase } = await requireAdmin();
   const expenseId = String(formData.get("expense_id"));
   const amount = money(formData.get("amount"));
@@ -173,10 +186,12 @@ export async function updateExpense(formData: FormData) {
     if (shareError) throw new Error(shareError.message);
   }
 
-  revalidatePath("/app/despesas");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }
 
 export async function setPaymentStatus(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
   const { supabase } = await requireAdmin();
   const shareId = String(formData.get("share_id"));
   const status = String(formData.get("status"));
@@ -207,10 +222,12 @@ export async function setPaymentStatus(formData: FormData) {
     .update({ status: settled ? "paid" : "open" })
     .eq("id", changed.expense_id);
 
-  revalidatePath("/app/despesas");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }
 
 export async function deleteExpense(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
   const { profile, supabase } = await requireAdmin();
   const { error } = await supabase
     .from("expenses")
@@ -218,5 +235,6 @@ export async function deleteExpense(formData: FormData) {
     .eq("id", String(formData.get("expense_id")))
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);
-  revalidatePath("/app/despesas");
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
 }

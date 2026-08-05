@@ -29,6 +29,7 @@ function calculateStreak(dates: string[]) {
 
 export default async function ChoresPage({ searchParams }: { searchParams: Promise<{ novo?: string }> }) {
   const params = await searchParams;
+  const baseRoute = "/app/limpeza";
   const { profile, supabase } = await requireActiveProfile();
   const weekStart = startOfWeek();
   const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
@@ -61,8 +62,9 @@ export default async function ChoresPage({ searchParams }: { searchParams: Promi
 
       {params.novo === "1" && profile.role === "admin" && (
         <section className="card pad" style={{ marginTop: 16 }}>
-          <div className="card-head" style={{ padding: 0, paddingBottom: 16, marginBottom: 18 }}><h2>Criar tarefa da casa</h2><Link href="/app/limpeza" className="button ghost small">Fechar</Link></div>
+          <div className="card-head" style={{ padding: 0, paddingBottom: 16, marginBottom: 18 }}><h2>Criar tarefa da casa</h2><Link href={baseRoute} className="button ghost small">Fechar</Link></div>
           <form action={createChore}>
+            <input type="hidden" name="redirect_to" value={baseRoute}/>
             <div className="form-grid cols-3">
               <label className="field span-2">Nome da tarefa<input name="title" required placeholder="Ex.: Limpar a geladeira"/></label>
               <label className="field">Pontos<input name="points" type="number" min="1" defaultValue="15" required/></label>
@@ -90,7 +92,7 @@ export default async function ChoresPage({ searchParams }: { searchParams: Promi
                   <div className="chore-card-head"><div><h3>{chore.title}</h3><p>{chore.description ?? "Tarefa recorrente da casa."}</p></div><span className="points-chip">+{chore.points} pts</span></div>
                   <div className="assignee-list">{assignments.map((assignment) => { const member = Array.isArray(assignment.member) ? assignment.member[0] : assignment.member; return <div className={`avatar avatar-${member?.color_key ?? "violet"}`} title={member?.name} key={assignment.member_id}>{member?.initials ?? "?"}</div>; })}</div>
                   <div className="chore-foot"><span>{frequencies[chore.frequency]}{chore.weekday !== null ? ` • ${weekdays[chore.weekday]}` : ""}</span><span>Sugerido: <strong>{suggestedMember?.name?.split(" ")[0] ?? "livre"}</strong></span></div>
-                  {profile.role === "admin" && <details className="details-editor" style={{ margin: "14px -16px -16px" }}><summary><CheckIcon style={{verticalAlign:"middle",marginRight:6}}/> Registrar conclusão</summary><div className="editor-body"><form action={checkInChore} className="stack-form" style={{marginTop:0}}><input type="hidden" name="chore_id" value={chore.id}/><label>Morador<select name="member_id" defaultValue={suggested?.member_id ?? members?.[0]?.id}>{(members ?? []).map((member)=><option value={member.id} key={member.id}>{member.name}</option>)}</select></label><label>Data<input name="reference_date" type="date" defaultValue={new Date().toISOString().slice(0,10)}/></label><label>Observação<input name="note" placeholder="Opcional"/></label><button className="button primary" type="submit">Confirmar check-in</button></form><form action={deleteChore} style={{marginTop:10}}><input type="hidden" name="chore_id" value={chore.id}/><button className="button danger small" type="submit">Excluir tarefa</button></form></div></details>}
+                  {profile.role === "admin" && <details className="details-editor" style={{ margin: "14px -16px -16px" }}><summary><CheckIcon style={{verticalAlign:"middle",marginRight:6}}/> Registrar conclusão</summary><div className="editor-body"><form action={checkInChore} className="stack-form" style={{marginTop:0}}><input type="hidden" name="chore_id" value={chore.id}/><input type="hidden" name="redirect_to" value={baseRoute}/><label>Morador<select name="member_id" defaultValue={suggested?.member_id ?? members?.[0]?.id}>{(members ?? []).map((member)=><option value={member.id} key={member.id}>{member.name}</option>)}</select></label><label>Data<input name="reference_date" type="date" defaultValue={new Date().toISOString().slice(0,10)}/></label><label>Observação<input name="note" placeholder="Opcional"/></label><button className="button primary" type="submit">Confirmar check-in</button></form><form action={deleteChore} style={{marginTop:10}}><input type="hidden" name="chore_id" value={chore.id}/><input type="hidden" name="redirect_to" value={baseRoute}/><button className="button danger small" type="submit">Excluir tarefa</button></form></div></details>}
                 </article>
               );
             })}

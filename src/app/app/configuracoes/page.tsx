@@ -5,6 +5,7 @@ import { addManualBalance, syncMercadoPago } from "./actions";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{success?:string;error?:string}> }) {
   const params = await searchParams;
+  const baseRoute = "/app/configuracoes";
   const { profile, supabase } = await requireActiveProfile();
   const { data: snapshots } = await supabase.from("wallet_snapshots").select("id,balance,source,external_id,observed_at,created_at").eq("household_id", profile.household_id).order("observed_at", {ascending:false}).limit(12);
   const latest = snapshots?.[0];
@@ -40,7 +41,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <p className="note">A geração do relatório é assíncrona. Na primeira tentativa, normalmente o site apenas solicita o relatório; a tentativa seguinte importa o arquivo pronto.</p>
           </section>
 
-          {profile.role === "admin" && <section className="card pad"><h3 style={{marginTop:0}}>Informar saldo manualmente</h3><p className="note">Use como contingência enquanto a integração ainda não estiver configurada ou quando quiser registrar uma conferência.</p><form action={addManualBalance} className="stack-form"><label>Saldo atual<input name="balance" inputMode="decimal" required placeholder="0,00"/></label><button className="button secondary" type="submit">Registrar saldo</button></form></section>}
+          {profile.role === "admin" && <section className="card pad"><h3 style={{marginTop:0}}>Informar saldo manualmente</h3><p className="note">Use como contingência enquanto a integração ainda não estiver configurada ou quando quiser registrar uma conferência.</p><form action={addManualBalance} className="stack-form"><input type="hidden" name="redirect_to" value={baseRoute}/><label>Saldo atual<input name="balance" inputMode="decimal" required placeholder="0,00"/></label><button className="button secondary" type="submit">Registrar saldo</button></form></section>}
 
           <section className="card pad"><h3 style={{marginTop:0}}>Automação diária</h3><p className="note">A Vercel executa uma rotina gratuita uma vez por dia, às 08:00 no horário de Fortaleza/Rio. Ela marca pagamentos atrasados, prepara despesas recorrentes do próximo mês e tenta importar o relatório mais recente do Mercado Pago.</p></section>
         </div>

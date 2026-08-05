@@ -25,6 +25,7 @@ function shiftMonth(month: string, delta: number) {
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<Search> }) {
   const params = await searchParams;
   const selectedMonth = validMonth(params.month);
+  const baseRoute = `/app/despesas?month=${selectedMonth}`;
   const { profile, supabase } = await requireActiveProfile();
   const [{ data: members }, { data: expenses }] = await Promise.all([
     supabase.from("household_members").select("id,name,initials,color_key").eq("household_id", profile.household_id).eq("active", true).order("display_order"),
@@ -51,7 +52,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       </div>
 
       {params.novo === "1" && profile.role === "admin" && (
-        <section className="card pad" style={{ marginTop: 16 }}><div className="card-head" style={{ padding: 0, paddingBottom: 16, marginBottom: 18 }}><h2>Adicionar nova despesa</h2><Link href={`/app/despesas?month=${selectedMonth}`} className="button ghost small">Fechar</Link></div><ExpenseForm members={members ?? []} defaultMonth={selectedMonth} /></section>
+        <section className="card pad" style={{ marginTop: 16 }}><div className="card-head" style={{ padding: 0, paddingBottom: 16, marginBottom: 18 }}><h2>Adicionar nova despesa</h2><Link href={baseRoute} className="button ghost small">Fechar</Link></div><ExpenseForm members={members ?? []} defaultMonth={selectedMonth} redirectTo={baseRoute} /></section>
       )}
 
       <div className="grid" style={{ marginTop: 16 }}>
@@ -73,7 +74,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
                     return (
                       <div className="share-card" key={share.id}>
                         <div className="share-card-top"><div className={`avatar avatar-${member?.color_key ?? "violet"}`}>{member?.initials ?? "?"}</div><div><strong>{member?.name ?? "Morador"}</strong><small>{currency.format(asNumber(share.amount))}</small></div></div>
-                        <div className="share-actions"><StatusPill status={share.payment_status} />{profile.role === "admin" && <form action={setPaymentStatus}><input type="hidden" name="share_id" value={share.id}/><input type="hidden" name="status" value={share.payment_status === "paid" ? "pending" : "paid"}/><button className="button ghost small" type="submit">{share.payment_status === "paid" ? "Desfazer" : "Marcar pago"}</button></form>}</div>
+                        <div className="share-actions"><StatusPill status={share.payment_status} />{profile.role === "admin" && <form action={setPaymentStatus}><input type="hidden" name="share_id" value={share.id}/><input type="hidden" name="status" value={share.payment_status === "paid" ? "pending" : "paid"}/><input type="hidden" name="redirect_to" value={baseRoute}/><button className="button ghost small" type="submit">{share.payment_status === "paid" ? "Desfazer" : "Marcar pago"}</button></form>}</div>
                       </div>
                     );
                   })}
@@ -81,7 +82,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
               ) : <div className="empty">A divisão individual ainda não foi definida.</div>}
               <div style={{ padding: "0 20px 14px" }}><div className="progress-track"><span style={{ width: `${shares.length ? (paidShares / shares.length) * 100 : 0}%` }} /></div><div className="progress-label"><span>{paidShares} de {shares.length} pagamentos confirmados</span><span>{shares.length ? Math.round((paidShares / shares.length) * 100) : 0}%</span></div></div>
               {profile.role === "admin" && (
-                <details className="details-editor"><summary><EditIcon style={{ verticalAlign: "middle", marginRight: 7 }}/> Editar despesa e divisão</summary><div className="editor-body"><ExpenseForm members={members ?? []} defaultMonth={selectedMonth} expense={expense as never}/><form action={deleteExpense} style={{ marginTop: 12 }}><input type="hidden" name="expense_id" value={expense.id}/><button className="button danger small" type="submit">Excluir despesa</button></form></div></details>
+                <details className="details-editor"><summary><EditIcon style={{ verticalAlign: "middle", marginRight: 7 }}/> Editar despesa e divisão</summary><div className="editor-body"><ExpenseForm members={members ?? []} defaultMonth={selectedMonth} expense={expense as never} redirectTo={baseRoute}/><form action={deleteExpense} style={{ marginTop: 12 }}><input type="hidden" name="expense_id" value={expense.id}/><input type="hidden" name="redirect_to" value={baseRoute}/><button className="button danger small" type="submit">Excluir despesa</button></form></div></details>
               )}
             </article>
           );

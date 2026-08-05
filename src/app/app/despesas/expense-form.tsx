@@ -47,10 +47,12 @@ export function ExpenseForm({
   members,
   defaultMonth,
   expense,
+  redirectTo,
 }: {
   members: Member[];
   defaultMonth: string;
   expense?: Expense;
+  redirectTo?: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const allowMismatchInputRef = useRef<HTMLInputElement>(null);
@@ -133,6 +135,7 @@ export function ExpenseForm({
   return (
     <>
       <form ref={formRef} action={action} onSubmit={handleSubmit}>
+        {redirectTo && <input type="hidden" name="redirect_to" value={redirectTo} />}
         <input
           ref={allowMismatchInputRef}
           type="hidden"
