@@ -207,6 +207,43 @@ textarea { min-height: 95px; resize: vertical; }
 .member-check { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 11px; padding: 10px; font-size: 10px; }
 .member-check input { width: auto; }
 .form-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.form-error { margin: 12px 0 0; color: #fecdd3; font-size: 11px; line-height: 1.5; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 6, 13, .72);
+  backdrop-filter: blur(12px);
+}
+.modal-card {
+  width: min(520px, 100%);
+  border-radius: 22px;
+  border: 1px solid rgba(251,191,36,.22);
+  background: linear-gradient(145deg, rgba(20,26,41,.98), rgba(12,16,27,.98));
+  box-shadow: 0 30px 90px rgba(0,0,0,.48);
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+}
+.modal-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(251,191,36,.12);
+  border: 1px solid rgba(251,191,36,.26);
+  color: #fde68a;
+  font-weight: 900;
+  letter-spacing: -.04em;
+}
+.modal-card h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
+.modal-card p { margin: 8px 0 0; color: var(--muted); line-height: 1.6; font-size: 13px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 
 .leaderboard { display: grid; gap: 10px; }
 .leader-row { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 11px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.022); }
@@ -282,4 +319,7 @@ textarea { min-height: 95px; resize: vertical; }
   .list-row { grid-template-columns: 1fr auto; }
   .list-row > :nth-child(2), .list-row > :nth-child(3) { display: none; }
   .pending-row { grid-template-columns: 1fr; }
+  .modal-backdrop { padding: 16px; }
+  .modal-actions { justify-content: stretch; }
+  .modal-actions .button { flex: 1; }
 }

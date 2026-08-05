@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { createExpense, updateExpense } from "./actions";
 
 type Member = { id: string; name: string; initials: string; color_key: string };
@@ -21,15 +21,43 @@ type Expense = {
 
 const categories = ["Moradia", "Energia", "Gás", "Internet", "Supermercado", "Limpeza", "Manutenção", "Lazer", "Outros"];
 
+function parseMoney(value: string) {
+  let text = value.trim().replace(/\s/g, "");
+  if (!text) return null;
+  if (text.includes(",") && text.includes(".")) {
+    text = text.replace(/\./g, "").replace(",", ".");
+  } else if (text.includes(",")) {
+    text = text.replace(",", ".");
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
+}
+
 export function ExpenseForm({ members, defaultMonth, expense }: { members: Member[]; defaultMonth: string; expense?: Expense }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const allowMismatchRef = useRef(false);
   const [mode, setMode] = useState(expense?.split_mode ?? "equal");
   const [amount, setAmount] = useState(expense?.amount?.toFixed(2) ?? "");
   const selectedInitially = useMemo(() => new Set(expense?.expense_shares?.map((share) => share.member_id) ?? members.map((member) => member.id)), [expense, members]);
   const [selected, setSelected] = useState(selectedInitially);
   const [custom, setCustom] = useState<Record<string, string>>(() => Object.fromEntries((expense?.expense_shares ?? []).map((share) => [share.member_id, Number(share.amount).toFixed(2)])));
+  const [error, setError] = useState<string | null>(null);
+  const [showMismatchModal, setShowMismatchModal] = useState(false);
   const action = expense ? updateExpense : createExpense;
   const parsedAmount = Number(amount.replace(",", ".")) || 0;
   const equalValue = selected.size ? parsedAmount / selected.size : 0;
+  const customMembers = members.filter((member) => selected.has(member.id));
+  const customTotal = customMembers.reduce((sum, member) => sum + (parseMoney(custom[member.id] ?? "") ?? 0), 0);
+  const hardValidationError =
+    mode === "custom" && parsedAmount <= 0
+      ? "Informe o valor total antes de usar divisão personalizada."
+      : mode === "custom" && selected.size === 0
+        ? "Selecione ao menos um morador para a divisão personalizada."
+        : null;
+  const splitMismatchMessage =
+    mode === "custom" && Math.abs(customTotal - parsedAmount) > 0.01
+      ? `A divisão personalizada soma R$ ${customTotal.toFixed(2)}, mas o valor total é R$ ${parsedAmount.toFixed(2)}. Deseja salvar mesmo assim?`
+      : null;
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -39,8 +67,31 @@ export function ExpenseForm({ members, defaultMonth, expense }: { members: Membe
     });
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (hardValidationError) {
+      event.preventDefault();
+      setError(hardValidationError);
+      return;
+    }
+    if (splitMismatchMessage && !allowMismatchRef.current) {
+      event.preventDefault();
+      setError(splitMismatchMessage);
+      setShowMismatchModal(true);
+      return;
+    }
+    allowMismatchRef.current = false;
+    setError(null);
+  }
+
+  function confirmMismatch() {
+    setShowMismatchModal(false);
+    allowMismatchRef.current = true;
+    formRef.current?.requestSubmit();
+  }
+
   return (
-    <form action={action}>
+    <>
+      <form ref={formRef} action={action} onSubmit={handleSubmit}>
       {expense && <input type="hidden" name="expense_id" value={expense.id} />}
       <div className="form-grid cols-3">
         <label className="field span-2">Nome da despesa<input name="title" required defaultValue={expense?.title} placeholder="Ex.: Compra do supermercado" /></label>
@@ -68,17 +119,35 @@ export function ExpenseForm({ members, defaultMonth, expense }: { members: Membe
           <h4>{mode === "equal" ? `Divisão automática: aproximadamente R$ ${equalValue.toFixed(2)} por pessoa` : "Informe o valor de cada pessoa"}</h4>
           {mode === "custom" && (
             <div className="form-grid cols-3">
-              {members.filter((member) => selected.has(member.id)).map((member) => (
-                <label className="field" key={member.id}>{member.name}<input name={`share_${member.id}`} inputMode="decimal" value={custom[member.id] ?? ""} onChange={(event) => setCustom({ ...custom, [member.id]: event.target.value })} placeholder="0,00" /></label>
+              {customMembers.map((member) => (
+                <label className="field" key={member.id}>{member.name}<input name={`share_${member.id}`} inputMode="decimal" required value={custom[member.id] ?? ""} onChange={(event) => setCustom({ ...custom, [member.id]: event.target.value })} placeholder="0,00" /></label>
               ))}
             </div>
           )}
+          {mode === "custom" && error && <p className="form-error" role="alert">{error}</p>}
         </div>
       )}
       <div className="form-section">
         <label className="inline-check"><input name="estimated" type="checkbox" defaultChecked={expense?.estimated} /> O valor ainda é uma estimativa</label>
       </div>
       <div className="form-actions"><button className="button primary" type="submit">{expense ? "Salvar alterações" : "Adicionar despesa"}</button></div>
-    </form>
+      </form>
+
+      {showMismatchModal && splitMismatchMessage && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setShowMismatchModal(false)}>
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="split-mismatch-title" aria-describedby="split-mismatch-description" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-icon">!</div>
+            <div>
+              <h3 id="split-mismatch-title">Divisão não bateu no centavo</h3>
+              <p id="split-mismatch-description">{splitMismatchMessage}</p>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" onClick={() => setShowMismatchModal(false)}>Cancelar</button>
+              <button type="button" className="button primary" onClick={confirmMismatch}>Salvar assim mesmo</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
