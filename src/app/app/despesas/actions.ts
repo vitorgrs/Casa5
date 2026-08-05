@@ -136,21 +136,18 @@ export async function createExpense(formData: FormData) {
     if (refundError || !refund)
       throw new Error(refundError?.message ?? "Não foi possível criar o reembolso.");
 
-    // Criar tarefa geral automaticamente
-    await supabase
-      .from("tasks_tasks")
-      .insert({
-        household_id: profile.household_id,
-        title: `Solicitar o reembolso da despesa ${title}.`,
-        description: refundDescription || `Despesa: ${title}\nValor: R$ ${refundTotalAmount?.toFixed(2)}`,
-        due_date: refundDueDate,
-        assigned_to: [], // será preenchido automaticamente
-        priority: 'medium',
-        status: 'pending',
+    // Registrar evento de sistema para o reembolso solicitado
+    await supabase.from("system_events").insert({
+      household_id: profile.household_id,
+      event_type: 'refund_solicited',
+      title: `Reembolso solicitado: ${title}`,
+      detail: `R$ ${refundTotalAmount?.toFixed(2)} para ${refundResponsibleEntity || 'entidade responsável'}`, metadata: {
+        expense_id: expense.id,
+        refund_id: refund.id,
         created_by: profile.id,
-        expense_refund_id: refund.id,
-        updated_by: profile.id,
-      });
+      },
+      created_by: profile.id,
+    });
   }
 
   revalidatePath(pathOf(returnTo));
@@ -320,12 +317,22 @@ export async function updateRefundStatus(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  // Se o reembolso for marcado como "distribuido", atualizar a tarefa correspondente
-  if (status === "distribuido") {
-    await supabase
-      .from("tasks_tasks")
-      .update({ status: "completed" })
-      .eq("expense_refund_id", refundId);
+  // Registrar evento de sistema para a mudança de status
+  const { data: refund } = await supabase
+    .from("expense_refunds")
+    .select("expense_id")
+    .eq("id", refundId)
+    .single();
+
+  if (refund) {
+    await supabase.from("system_events").insert({
+      household_id: profile.household_id,
+      event_type: `refund_${status}`,
+      title: `Reembolso ${status}: ID ${refundId.substring(0, 8)}`,
+      detail: status,
+      metadata: { expense_id: refund.expense_id, refund_id: refundId, updated_by: profile.id },
+      created_by: profile.id,
+    });
   }
 
   revalidatePath(pathOf(returnTo));
