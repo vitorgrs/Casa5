@@ -24,7 +24,6 @@ export async function addManualBalance(formData: FormData) {
     created_by: profile.id
   });
   if (error) throw new Error(error.message);
-  revalidatePath("/app");
   revalidatePath("/app/configuracoes");
 }
 
@@ -33,7 +32,6 @@ export async function syncMercadoPago() {
   let destination: string;
   try {
     const result = await syncLatestMercadoPagoReport(supabase, profile.household_id!, profile.id);
-    revalidatePath("/app");
     revalidatePath("/app/configuracoes");
     const message = result.imported
       ? "Novo relatório importado e próxima atualização solicitada."

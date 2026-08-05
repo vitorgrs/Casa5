@@ -1,6 +1,7 @@
-import { login, signup } from "./actions";
 import { Logo } from "@/components/logo";
 import { CheckIcon, SparkIcon, WalletIcon } from "@/components/icons";
+import { LoginForm } from "./login-form";
+import { signup } from "./actions";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
   const params = await searchParams;
@@ -26,13 +27,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <span className="eyebrow">Acesso privado</span>
           <h2>Entre na Casa Cinco</h2>
           <p className="muted-text">Use o e-mail cadastrado para acompanhar as despesas e tarefas.</p>
-          {params.error && <div className="message error">{params.error}</div>}
           {params.success && <div className="message success">{params.success}</div>}
-          <form action={login} className="stack-form">
-            <label>E-mail<input name="email" type="email" required placeholder="voce@email.com" /></label>
-            <label>Senha<input name="password" type="password" required minLength={8} placeholder="••••••••" /></label>
-            <button className="button primary wide" type="submit">Entrar</button>
-          </form>
+          {params.error && <div className="message error">{params.error}</div>}
+          <LoginForm />
           <details className="signup-details">
             <summary>Primeiro acesso? Criar conta</summary>
             <form action={signup} className="stack-form compact-form">

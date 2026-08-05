@@ -81,7 +81,6 @@ export async function createExpense(formData: FormData) {
     if (shareError) throw new Error(shareError.message);
   }
 
-  revalidatePath("/app");
   revalidatePath("/app/despesas");
 }
 
@@ -142,7 +141,6 @@ export async function updateExpense(formData: FormData) {
     if (shareError) throw new Error(shareError.message);
   }
 
-  revalidatePath("/app");
   revalidatePath("/app/despesas");
 }
 
@@ -169,7 +167,6 @@ export async function setPaymentStatus(formData: FormData) {
   const settled = (shares ?? []).length > 0 && (shares ?? []).every((share) => ["paid", "waived"].includes(share.payment_status));
   await supabase.from("expenses").update({ status: settled ? "paid" : "open" }).eq("id", changed.expense_id);
 
-  revalidatePath("/app");
   revalidatePath("/app/despesas");
 }
 
@@ -181,6 +178,5 @@ export async function deleteExpense(formData: FormData) {
     .eq("id", String(formData.get("expense_id")))
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);
-  revalidatePath("/app");
   revalidatePath("/app/despesas");
 }

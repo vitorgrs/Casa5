@@ -29,7 +29,6 @@ export async function createChore(formData: FormData) {
     if (assignmentError) throw new Error(assignmentError.message);
   }
 
-  revalidatePath("/app");
   revalidatePath("/app/limpeza");
 }
 
@@ -52,7 +51,6 @@ export async function checkInChore(formData: FormData) {
   }, { onConflict: "chore_id,member_id,reference_date" });
   if (error) throw new Error(error.message);
 
-  revalidatePath("/app");
   revalidatePath("/app/limpeza");
 }
 

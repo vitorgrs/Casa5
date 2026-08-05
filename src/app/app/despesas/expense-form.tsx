@@ -19,7 +19,17 @@ type Expense = {
   expense_shares: Share[];
 };
 
-const categories = ["Moradia", "Energia", "Gás", "Internet", "Supermercado", "Limpeza", "Manutenção", "Lazer", "Outros"];
+const categories = [
+  "Moradia",
+  "Energia",
+  "Gás",
+  "Internet",
+  "Supermercado",
+  "Limpeza",
+  "Manutenção",
+  "Lazer",
+  "Outros",
+];
 
 function parseMoney(value: string) {
   let text = value.trim().replace(/\s/g, "");
@@ -33,21 +43,46 @@ function parseMoney(value: string) {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : null;
 }
 
-export function ExpenseForm({ members, defaultMonth, expense }: { members: Member[]; defaultMonth: string; expense?: Expense }) {
+export function ExpenseForm({
+  members,
+  defaultMonth,
+  expense,
+}: {
+  members: Member[];
+  defaultMonth: string;
+  expense?: Expense;
+}) {
   const formRef = useRef<HTMLFormElement>(null);
   const allowMismatchRef = useRef(false);
   const [mode, setMode] = useState(expense?.split_mode ?? "equal");
   const [amount, setAmount] = useState(expense?.amount?.toFixed(2) ?? "");
-  const selectedInitially = useMemo(() => new Set(expense?.expense_shares?.map((share) => share.member_id) ?? members.map((member) => member.id)), [expense, members]);
+  const selectedInitially = useMemo(
+    () =>
+      new Set(
+        expense?.expense_shares?.map((share) => share.member_id) ??
+          members.map((member) => member.id),
+      ),
+    [expense, members],
+  );
   const [selected, setSelected] = useState(selectedInitially);
-  const [custom, setCustom] = useState<Record<string, string>>(() => Object.fromEntries((expense?.expense_shares ?? []).map((share) => [share.member_id, Number(share.amount).toFixed(2)])));
+  const [custom, setCustom] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (expense?.expense_shares ?? []).map((share) => [
+        share.member_id,
+        Number(share.amount).toFixed(2),
+      ]),
+    ),
+  );
   const [error, setError] = useState<string | null>(null);
   const [showMismatchModal, setShowMismatchModal] = useState(false);
   const action = expense ? updateExpense : createExpense;
   const parsedAmount = Number(amount.replace(",", ".")) || 0;
   const equalValue = selected.size ? parsedAmount / selected.size : 0;
   const customMembers = members.filter((member) => selected.has(member.id));
-  const customTotal = customMembers.reduce((sum, member) => sum + (parseMoney(custom[member.id] ?? "") ?? 0), 0);
+  const customTotal = customMembers.reduce(
+    (sum, member) => sum + (parseMoney(custom[member.id] ?? "") ?? 0),
+    0,
+  );
   const hardValidationError =
     mode === "custom" && parsedAmount <= 0
       ? "Informe o valor total antes de usar divisão personalizada."
@@ -62,7 +97,8 @@ export function ExpenseForm({ members, defaultMonth, expense }: { members: Membe
   function toggle(id: string) {
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -92,58 +128,195 @@ export function ExpenseForm({ members, defaultMonth, expense }: { members: Membe
   return (
     <>
       <form ref={formRef} action={action} onSubmit={handleSubmit}>
-      {expense && <input type="hidden" name="expense_id" value={expense.id} />}
-      <div className="form-grid cols-3">
-        <label className="field span-2">Nome da despesa<input name="title" required defaultValue={expense?.title} placeholder="Ex.: Compra do supermercado" /></label>
-        <label className="field">Categoria<select name="category" defaultValue={expense?.category ?? "Outros"}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>
-        <label className="field">Mês de referência<input name="reference_month" type="month" required defaultValue={(expense?.reference_month ?? `${defaultMonth}-01`).slice(0, 7)} /></label>
-        <label className="field">Vencimento<input name="due_date" type="date" defaultValue={expense?.due_date ?? ""} /></label>
-        <label className="field">Valor total<input name="amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" /></label>
-        <label className="field">Divisão<select name="split_mode" value={mode} onChange={(event) => setMode(event.target.value as "equal" | "custom")}><option value="equal">Igual entre selecionados</option><option value="custom">Valores personalizados</option></select></label>
-        <label className="field">Recorrência<select name="recurrence" defaultValue={expense?.recurrence ?? "once"}><option value="once">Somente este mês</option><option value="monthly">Repetir mensalmente</option></select></label>
-        <label className="field span-3">Observações<textarea name="description" defaultValue={expense?.description ?? ""} placeholder="Detalhes úteis sobre esta despesa" /></label>
-      </div>
-      <div className="form-section">
-        <h4>Quem participa desta divisão?</h4>
-        <div className="member-check-grid">
-          {members.map((member) => (
-            <label className="member-check" key={member.id}>
-              <input name="members" type="checkbox" value={member.id} checked={selected.has(member.id)} onChange={() => toggle(member.id)} />
-              <span>{member.name}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-      {parsedAmount > 0 && (
-        <div className="form-section">
-          <h4>{mode === "equal" ? `Divisão automática: aproximadamente R$ ${equalValue.toFixed(2)} por pessoa` : "Informe o valor de cada pessoa"}</h4>
-          {mode === "custom" && (
-            <div className="form-grid cols-3">
-              {customMembers.map((member) => (
-                <label className="field" key={member.id}>{member.name}<input name={`share_${member.id}`} inputMode="decimal" required value={custom[member.id] ?? ""} onChange={(event) => setCustom({ ...custom, [member.id]: event.target.value })} placeholder="0,00" /></label>
+        {expense && (
+          <input type="hidden" name="expense_id" value={expense.id} />
+        )}
+        <div className="form-grid cols-3">
+          <label className="field span-2">
+            Nome da despesa
+            <input
+              name="title"
+              required
+              defaultValue={expense?.title}
+              placeholder="Ex.: Compra do supermercado"
+            />
+          </label>
+          <label className="field">
+            Categoria
+            <select
+              name="category"
+              defaultValue={expense?.category ?? "Outros"}
+            >
+              {categories.map((category) => (
+                <option key={category}>{category}</option>
               ))}
-            </div>
-          )}
-          {mode === "custom" && error && <p className="form-error" role="alert">{error}</p>}
+            </select>
+          </label>
+          <label className="field">
+            Mês de referência
+            <input
+              name="reference_month"
+              type="month"
+              required
+              defaultValue={(
+                expense?.reference_month ?? `${defaultMonth}-01`
+              ).slice(0, 7)}
+            />
+          </label>
+          <label className="field">
+            Vencimento
+            <input
+              name="due_date"
+              type="date"
+              defaultValue={expense?.due_date ?? ""}
+            />
+          </label>
+          <label className="field">
+            Valor total
+            <input
+              name="amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder="0,00"
+            />
+          </label>
+          <label className="field">
+            Divisão
+            <select
+              name="split_mode"
+              value={mode}
+              onChange={(event) =>
+                setMode(event.target.value as "equal" | "custom")
+              }
+            >
+              <option value="equal">Igual entre selecionados</option>
+              <option value="custom">Valores personalizados</option>
+            </select>
+          </label>
+          <label className="field">
+            Recorrência
+            <select
+              name="recurrence"
+              defaultValue={expense?.recurrence ?? "once"}
+            >
+              <option value="once">Somente este mês</option>
+              <option value="monthly">Repetir mensalmente</option>
+            </select>
+          </label>
+          <label className="field span-3">
+            Observações
+            <textarea
+              name="description"
+              defaultValue={expense?.description ?? ""}
+              placeholder="Detalhes úteis sobre esta despesa"
+            />
+          </label>
         </div>
-      )}
-      <div className="form-section">
-        <label className="inline-check"><input name="estimated" type="checkbox" defaultChecked={expense?.estimated} /> O valor ainda é uma estimativa</label>
-      </div>
-      <div className="form-actions"><button className="button primary" type="submit">{expense ? "Salvar alterações" : "Adicionar despesa"}</button></div>
+        <div className="form-section">
+          <h4>Quem participa desta divisão?</h4>
+          <div className="member-check-grid">
+            {members.map((member) => (
+              <label className="member-check" key={member.id}>
+                <input
+                  name="members"
+                  type="checkbox"
+                  value={member.id}
+                  checked={selected.has(member.id)}
+                  onChange={() => toggle(member.id)}
+                />
+                <span>{member.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {parsedAmount > 0 && (
+          <div className="form-section">
+            <h4>
+              {mode === "equal"
+                ? `Divisão automática: aproximadamente R$ ${equalValue.toFixed(2)} por pessoa`
+                : "Informe o valor de cada pessoa"}
+            </h4>
+            {mode === "custom" && (
+              <div className="form-grid cols-3">
+                {customMembers.map((member) => (
+                  <label className="field" key={member.id}>
+                    {member.name}
+                    <input
+                      name={`share_${member.id}`}
+                      inputMode="decimal"
+                      required
+                      value={custom[member.id] ?? ""}
+                      onChange={(event) =>
+                        setCustom({
+                          ...custom,
+                          [member.id]: event.target.value,
+                        })
+                      }
+                      placeholder="0,00"
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+            {mode === "custom" && error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="form-section">
+          <label className="inline-check">
+            <input
+              name="estimated"
+              type="checkbox"
+              defaultChecked={expense?.estimated}
+            />{" "}
+            O valor ainda é uma estimativa
+          </label>
+        </div>
+        <div className="form-actions">
+          <button className="button primary" type="submit">
+            {expense ? "Salvar alterações" : "Adicionar despesa"}
+          </button>
+        </div>
       </form>
 
       {showMismatchModal && splitMismatchMessage && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setShowMismatchModal(false)}>
-          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="split-mismatch-title" aria-describedby="split-mismatch-description" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setShowMismatchModal(false)}
+        >
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="split-mismatch-title"
+            aria-describedby="split-mismatch-description"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="modal-icon">!</div>
             <div>
               <h3 id="split-mismatch-title">Divisão não bateu no centavo</h3>
               <p id="split-mismatch-description">{splitMismatchMessage}</p>
             </div>
             <div className="modal-actions">
-              <button type="button" className="button ghost" onClick={() => setShowMismatchModal(false)}>Cancelar</button>
-              <button type="button" className="button primary" onClick={confirmMismatch}>Salvar assim mesmo</button>
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => setShowMismatchModal(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="button primary"
+                onClick={confirmMismatch}
+              >
+                Salvar assim mesmo
+              </button>
             </div>
           </div>
         </div>
