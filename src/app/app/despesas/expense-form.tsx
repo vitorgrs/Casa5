@@ -107,13 +107,15 @@ export function ExpenseForm({
     const allowCustomMismatch = allowMismatchInputRef.current?.value === "1";
     if (hardValidationError) {
       event.preventDefault();
-      if (allowMismatchInputRef.current) allowMismatchInputRef.current.value = "0";
+      if (allowMismatchInputRef.current)
+        allowMismatchInputRef.current.value = "0";
       setError(hardValidationError);
       return;
     }
     if (splitMismatchMessage && !allowCustomMismatch) {
       event.preventDefault();
-      if (allowMismatchInputRef.current) allowMismatchInputRef.current.value = "0";
+      if (allowMismatchInputRef.current)
+        allowMismatchInputRef.current.value = "0";
       setError(splitMismatchMessage);
       setShowMismatchModal(true);
       return;
@@ -123,7 +125,8 @@ export function ExpenseForm({
 
   function confirmMismatch() {
     setShowMismatchModal(false);
-    if (allowMismatchInputRef.current) allowMismatchInputRef.current.value = "1";
+    if (allowMismatchInputRef.current)
+      allowMismatchInputRef.current.value = "1";
     formRef.current?.requestSubmit();
   }
 
