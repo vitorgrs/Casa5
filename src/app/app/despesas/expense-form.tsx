@@ -135,7 +135,9 @@ export function ExpenseForm({
   return (
     <>
       <form ref={formRef} action={action} onSubmit={handleSubmit}>
-        {redirectTo && <input type="hidden" name="redirect_to" value={redirectTo} />}
+        {redirectTo && (
+          <input type="hidden" name="redirect_to" value={redirectTo} />
+        )}
         <input
           ref={allowMismatchInputRef}
           type="hidden"

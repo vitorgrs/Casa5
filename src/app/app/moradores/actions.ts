@@ -16,7 +16,10 @@ function pathOf(url: string) {
 export async function updateMemberEmail(formData: FormData) {
   const returnTo = destination(formData, "/app/moradores");
   const { profile, supabase } = await requireAdmin();
-  const email = String(formData.get("email") ?? "").trim().toLowerCase() || null;
+  const email =
+    String(formData.get("email") ?? "")
+      .trim()
+      .toLowerCase() || null;
   const { error } = await supabase
     .from("household_members")
     .update({ email })
@@ -30,7 +33,9 @@ export async function updateMemberEmail(formData: FormData) {
 export async function linkPendingProfile(formData: FormData) {
   const returnTo = destination(formData, "/app/moradores");
   const { profile, supabase } = await requireAdmin();
-  const email = String(formData.get("profile_email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("profile_email") ?? "")
+    .trim()
+    .toLowerCase();
   const memberId = String(formData.get("member_id") ?? "");
   const { error } = await supabase
     .from("household_members")

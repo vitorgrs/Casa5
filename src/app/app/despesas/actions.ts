@@ -65,7 +65,7 @@ function makeShares(
 }
 
 export async function createExpense(formData: FormData) {
-    const returnTo = destination(formData, "/app/despesas");
+  const returnTo = destination(formData, "/app/despesas");
   const { profile, supabase } = await requireAdmin();
   const title = String(formData.get("title") ?? "").trim();
   const amount = money(formData.get("amount"));
@@ -109,7 +109,7 @@ export async function createExpense(formData: FormData) {
 }
 
 export async function updateExpense(formData: FormData) {
-    const returnTo = destination(formData, "/app/despesas");
+  const returnTo = destination(formData, "/app/despesas");
   const { profile, supabase } = await requireAdmin();
   const expenseId = String(formData.get("expense_id"));
   const amount = money(formData.get("amount"));
