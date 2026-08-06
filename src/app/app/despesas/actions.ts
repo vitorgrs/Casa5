@@ -152,7 +152,9 @@ export async function updateExpense(formData: FormData) {
     [
       supabase
         .from("expense_shares")
-        .select("member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at")
+        .select(
+          "member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at",
+        )
         .eq("expense_id", expenseId),
       supabase
         .from("expenses")
@@ -215,11 +217,14 @@ export async function updateExpense(formData: FormData) {
           payment_method: old?.payment_method ?? null,
           note: old?.note ?? null,
           reimbursement_status: hasReimbursement
-            ? (old?.reimbursement_status && old.reimbursement_status !== "not_applicable"
-                ? old.reimbursement_status
-                : "pending")
+            ? old?.reimbursement_status &&
+              old.reimbursement_status !== "not_applicable"
+              ? old.reimbursement_status
+              : "pending"
             : "not_applicable",
-          reimbursement_paid_at: hasReimbursement ? (old?.reimbursement_paid_at ?? null) : null,
+          reimbursement_paid_at: hasReimbursement
+            ? (old?.reimbursement_paid_at ?? null)
+            : null,
         };
       }),
     );
@@ -302,7 +307,8 @@ export async function setReimbursementStatus(formData: FormData) {
     .from("expense_shares")
     .update({
       reimbursement_status: status,
-      reimbursement_paid_at: status === "paid" ? new Date().toISOString() : null,
+      reimbursement_paid_at:
+        status === "paid" ? new Date().toISOString() : null,
     })
     .eq("id", shareId)
     .neq("reimbursement_status", "not_applicable");

@@ -332,7 +332,10 @@ export default async function ChoresPage({
                           />
                           <label>
                             Morador
-                            <select name="member_id" defaultValue={members?.[0]?.id}>
+                            <select
+                              name="member_id"
+                              defaultValue={members?.[0]?.id}
+                            >
                               {(members ?? []).map((member) => (
                                 <option value={member.id} key={member.id}>
                                   {member.name}

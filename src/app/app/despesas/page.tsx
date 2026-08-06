@@ -8,7 +8,11 @@ import {
 import { StatusPill } from "@/components/status-pill";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
-import { deleteExpense, setPaymentStatus, setReimbursementStatus } from "./actions";
+import {
+  deleteExpense,
+  setPaymentStatus,
+  setReimbursementStatus,
+} from "./actions";
 import { ExpenseForm } from "./expense-form";
 
 type Search = { month?: string; novo?: string };
@@ -260,23 +264,46 @@ export default async function ExpensesPage({
                           )}
                         </div>
                         {share.reimbursement_status !== "not_applicable" && (
-                          <div className="share-actions" style={{ marginTop: 6 }}>
+                          <div
+                            className="share-actions"
+                            style={{ marginTop: 6 }}
+                          >
                             <span
                               className={`status-pill ${share.reimbursement_status === "paid" ? "success" : "warn"}`}
                             >
-                              Reembolso {share.reimbursement_status === "paid" ? "pago" : "pendente"}
+                              Reembolso{" "}
+                              {share.reimbursement_status === "paid"
+                                ? "pago"
+                                : "pendente"}
                             </span>
                             {canMarkPaid && (
                               <form action={setReimbursementStatus}>
-                                <input type="hidden" name="share_id" value={share.id} />
+                                <input
+                                  type="hidden"
+                                  name="share_id"
+                                  value={share.id}
+                                />
                                 <input
                                   type="hidden"
                                   name="status"
-                                  value={share.reimbursement_status === "paid" ? "pending" : "paid"}
+                                  value={
+                                    share.reimbursement_status === "paid"
+                                      ? "pending"
+                                      : "paid"
+                                  }
                                 />
-                                <input type="hidden" name="redirect_to" value={baseRoute} />
-                                <button className="button ghost small" type="submit">
-                                  {share.reimbursement_status === "paid" ? "Desfazer reembolso" : "Marcar reembolso pago"}
+                                <input
+                                  type="hidden"
+                                  name="redirect_to"
+                                  value={baseRoute}
+                                />
+                                <button
+                                  className="button ghost small"
+                                  type="submit"
+                                >
+                                  {share.reimbursement_status === "paid"
+                                    ? "Desfazer reembolso"
+                                    : "Marcar reembolso pago"}
                                 </button>
                               </form>
                             )}
