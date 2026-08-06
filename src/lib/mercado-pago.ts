@@ -108,29 +108,60 @@ function toMercadoPagoUtcIso(date: Date) {
   return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-export async function generateBankReport(days = 35) {
+export type GenerateReportResult = {
+  status: number;
+  accepted: boolean;
+  detail: string | null;
+};
+
+/**
+ * BUG ENCONTRADO: a função antiga sempre lia `response.ok`, que é `true`
+ * para qualquer status 2xx. A documentação oficial do Mercado Pago avisa
+ * que o endpoint de criação pode responder `202` (aceito, relatório será
+ * gerado) OU `203 Non-Authoritative Information` — que significa "a
+ * requisição foi entendida, mas o relatório NÃO pôde ser criado; peça
+ * novamente com as datas indicadas pelo sistema". Como 203 também é um
+ * status 2xx, o código antigo tratava isso como sucesso silenciosamente,
+ * então o relatório nunca era realmente criado e o app ficava repetindo
+ * "nova atualização solicitada" para sempre.
+ * Agora tratamos 202 e 203 de forma explícita e devolvemos o motivo real
+ * para a tela de Configurações.
+ */
+export async function generateBankReport(days = 35): Promise<GenerateReportResult> {
   // O relatório de Liberações aceita no máximo 60 dias.
   const safeDays = Math.min(Math.max(Math.trunc(days), 1), 59);
   const end = new Date();
   const begin = new Date(end);
   begin.setUTCDate(begin.getUTCDate() - safeDays);
 
-  const beginDate = toMercadoPagoUtcIso(begin);
-  const endDate = toMercadoPagoUtcIso(end);
   const payload = {
-    begin_date: beginDate,
-    end_date: endDate
+    begin_date: toMercadoPagoUtcIso(begin),
+    end_date: toMercadoPagoUtcIso(end)
   };
 
-  // Algumas contas/versões do gateway do Mercado Pago não reconhecem os
-  // campos somente no JSON. Enviá-los também na query mantém compatibilidade,
-  // enquanto o corpo continua conforme a documentação oficial.
-  const query = new URLSearchParams(payload).toString();
-
-  await mpFetch(`${RELEASE_REPORT_PATH}?${query}`, {
+  const response = await fetch(`${BASE_URL}${RELEASE_REPORT_PATH}`, {
     method: "POST",
-    body: JSON.stringify(payload)
+    headers: headers(),
+    body: JSON.stringify(payload),
+    cache: "no-store"
   });
+
+  const bodyText = await response.text();
+
+  if (response.status === 202) {
+    return { status: 202, accepted: true, detail: null };
+  }
+
+  if (response.status === 203) {
+    // A API costuma devolver, no corpo, uma sugestão de datas válidas.
+    return { status: 203, accepted: false, detail: bodyText.slice(0, 500) || "O Mercado Pago recusou o intervalo de datas solicitado." };
+  }
+
+  if (!response.ok) {
+    throw new Error(`Mercado Pago ${response.status}: ${bodyText.slice(0, 500)}`);
+  }
+
+  return { status: response.status, accepted: true, detail: null };
 }
 
 type ReportItem = {
@@ -225,6 +256,7 @@ export async function syncLatestMercadoPagoReport(
 
   let imported = false;
   let balance: number | null = null;
+  let requestDetail: string | null = null;
 
   if (latestReadyReport?.file_name) {
     const latest = latestReadyReport;
@@ -262,7 +294,22 @@ export async function syncLatestMercadoPagoReport(
 
   const newestCreatedAt = reports[0] ? reportTimestamp(reports[0]) : 0;
   const twentyHoursAgo = Date.now() - 20 * 60 * 60 * 1000;
-  if (newestCreatedAt < twentyHoursAgo) await generateBankReport();
+  let requested = false;
+  if (newestCreatedAt < twentyHoursAgo) {
+    const result = await generateBankReport();
+    requested = result.accepted;
+    if (!result.accepted) {
+      requestDetail = `O Mercado Pago recusou a solicitação (status ${result.status}). Detalhe: ${result.detail}`;
+    }
+  }
 
-  return { imported, balance, reportsFound: reports.length };
+  return {
+    imported,
+    balance,
+    reportsFound: reports.length,
+    requested,
+    requestDetail,
+    latestReportStatus: reports[0]?.status ?? null,
+    latestReportDate: reports[0] ? new Date(reportTimestamp(reports[0])).toISOString() : null
+  };
 }

@@ -5,13 +5,15 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { signOut } from "@/app/login/actions";
 import { Logo } from "@/components/logo";
-import { BellIcon, HomeIcon, LogoutIcon, SettingsIcon, SparkIcon, UsersIcon, WalletIcon } from "@/components/icons";
+import { BellIcon, ChecklistIcon, HomeIcon, LogoutIcon, SettingsIcon, SparkIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import type { AppProfile } from "@/lib/auth";
 
 const nav = [
   { href: "/app", label: "Visão geral", icon: HomeIcon },
+  { href: "/app/eu", label: "Minha página", icon: UsersIcon },
   { href: "/app/despesas", label: "Despesas", icon: WalletIcon },
   { href: "/app/limpeza", label: "Casa em dia", icon: SparkIcon },
+  { href: "/app/organizacao", label: "Organização", icon: ChecklistIcon },
   { href: "/app/moradores", label: "Moradores", icon: UsersIcon },
   { href: "/app/configuracoes", label: "Configurações", icon: SettingsIcon }
 ];
@@ -37,7 +39,7 @@ export function AppShell({ profile, children, alertCount = 0 }: { profile: AppPr
         <div className="sidebar-footer">
           <div className="profile-mini">
             <div className="avatar avatar-violet">{profile.full_name.slice(0, 1).toUpperCase()}</div>
-            <div><strong>{profile.full_name}</strong><small>{profile.role === "admin" ? "Administrador" : "Somente leitura"}</small></div>
+            <div><strong>{profile.full_name}</strong><small>{profile.role === "admin" ? "Administrador" : "Morador"}</small></div>
           </div>
           <form action={signOut}><button className="icon-button" title="Sair"><LogoutIcon /></button></form>
         </div>
@@ -49,7 +51,7 @@ export function AppShell({ profile, children, alertCount = 0 }: { profile: AppPr
             <strong className="topbar-title">Painel da Casa</strong>
           </div>
           <div className="topbar-actions">
-            <div className="role-chip">{profile.role === "admin" ? "Modo administrador" : "Modo leitura"}</div>
+            <div className="role-chip">{profile.role === "admin" ? "Modo administrador" : "Acesso de morador"}</div>
             <button className="icon-button notification-button" aria-label="Alertas">
               <BellIcon />
               {alertCount > 0 && <span>{alertCount}</span>}

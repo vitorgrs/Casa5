@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency } from "@/lib/format";
-import { addManualBalance, syncMercadoPago } from "./actions";
+import { addManualBalance, syncMercadoPago, updateReminderSettings } from "./actions";
 
 export default async function SettingsPage({
   searchParams,
@@ -11,14 +12,22 @@ export default async function SettingsPage({
   const params = await searchParams;
   const baseRoute = "/app/configuracoes";
   const { profile, supabase } = await requireActiveProfile();
-  const { data: snapshots } = await supabase
-    .from("wallet_snapshots")
-    .select("id,balance,source,external_id,observed_at,created_at")
-    .eq("household_id", profile.household_id)
-    .order("observed_at", { ascending: false })
-    .limit(12);
+  const canViewWallet = can(profile, "view_wallet_balance");
+  const { data: snapshots } = canViewWallet
+    ? await supabase
+        .from("wallet_snapshots")
+        .select("id,balance,source,external_id,observed_at,created_at")
+        .eq("household_id", profile.household_id)
+        .order("observed_at", { ascending: false })
+        .limit(12)
+    : { data: [] as { id: string; balance: number; source: string; external_id: string | null; observed_at: string; created_at: string }[] };
   const latest = snapshots?.[0];
   const mpConfigured = Boolean(process.env.MERCADO_PAGO_ACCESS_TOKEN);
+  const { data: reminderSettings } = await supabase
+    .from("household_settings")
+    .select("reminders_enabled,reminder_days_before")
+    .eq("household_id", profile.household_id)
+    .maybeSingle();
 
   return (
     <>
@@ -31,8 +40,15 @@ export default async function SettingsPage({
             ambiente.
           </p>
         </div>
-        <div className="role-chip">
-          <SettingsIcon /> Ambiente privado
+        <div className="page-actions">
+          {profile.role === "admin" && (
+            <Link className="button secondary" href="/app/configuracoes/permissoes">
+              <SettingsIcon /> Permissões dos moradores
+            </Link>
+          )}
+          <div className="role-chip">
+            <SettingsIcon /> Ambiente privado
+          </div>
         </div>
       </div>
       {params.success && (
@@ -41,6 +57,7 @@ export default async function SettingsPage({
       {params.error && <div className="message error">{params.error}</div>}
 
       <div className="config-grid">
+        {canViewWallet ? (
         <div className="grid">
           <section className="card pad wallet-card">
             <span className="eyebrow bright">
@@ -121,6 +138,14 @@ export default async function SettingsPage({
             </div>
           </section>
         </div>
+        ) : (
+          <div className="card pad">
+            <div className="empty">
+              Você não tem permissão para ver o saldo do Mercado Pago. Peça ao
+              administrador para liberar em Permissões dos moradores.
+            </div>
+          </div>
+        )}
 
         <div className="grid">
           <section className="card pad">
@@ -177,10 +202,48 @@ export default async function SettingsPage({
             <p className="note">
               A Vercel executa uma rotina gratuita uma vez por dia, às 08:00 no
               horário de Fortaleza/Rio. Ela marca pagamentos atrasados, prepara
-              despesas recorrentes do próximo mês e tenta importar o relatório
-              mais recente do Mercado Pago.
+              despesas recorrentes do próximo mês, tenta importar o relatório
+              mais recente do Mercado Pago e envia lembretes de vencimento por
+              e-mail.
             </p>
           </section>
+
+          {profile.role === "admin" && (
+            <section className="card pad">
+              <h3 style={{ marginTop: 0 }}>Lembretes de vencimento por e-mail</h3>
+              <p className="note">
+                Usa a API do Resend (plano gratuito: 3.000 e-mails/mês). É
+                necessário verificar um domínio de envio no Resend e definir
+                <code> RESEND_API_KEY</code> e <code>RESEND_FROM</code> nas
+                variáveis de ambiente da Vercel. Sem essas variáveis, os
+                lembretes ficam desativados automaticamente.
+              </p>
+              <form action={updateReminderSettings} className="stack-form">
+                <input type="hidden" name="redirect_to" value="/app/configuracoes" />
+                <label style={{ flexDirection: "row", alignItems: "center", gap: 10, display: "flex" }}>
+                  <input
+                    type="checkbox"
+                    name="reminders_enabled"
+                    defaultChecked={reminderSettings?.reminders_enabled ?? true}
+                  />
+                  Lembretes ativados
+                </label>
+                <label>
+                  Enviar aviso com quantos dias de antecedência?
+                  <input
+                    name="reminder_days_before"
+                    type="number"
+                    min={0}
+                    max={14}
+                    defaultValue={reminderSettings?.reminder_days_before ?? 3}
+                  />
+                </label>
+                <button className="button secondary" type="submit">
+                  Salvar preferências
+                </button>
+              </form>
+            </section>
+          )}
         </div>
       </div>
     </>

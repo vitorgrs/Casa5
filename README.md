@@ -192,3 +192,118 @@ supabase/migrations/         banco, RLS e dados iniciais
 ## Observação importante sobre o Mercado Pago
 
 O relatório de saldo disponível é adequado para conciliação, mas não funciona como um websocket bancário em tempo real. O projeto atualiza o saldo por solicitação manual ou pela rotina diária gratuita. Para um apartamento, isso evita custos e mantém a integração simples e segura.
+
+## Novidades desta atualização (permissões, organização, calendário, reembolsos, PIX, e-mail)
+
+### 1. Rodar a migração nova
+
+No SQL Editor do Supabase, depois do `001_initial.sql`, execute:
+
+```text
+supabase/migrations/002_features.sql
+```
+
+Recomenda-se testar primeiro em um projeto/branch de homologação do Supabase,
+pois o arquivo altera políticas de RLS já existentes (principalmente a
+leitura do saldo do Mercado Pago).
+
+### 2. Permissões por morador
+
+- Em **Configurações → Permissões dos moradores** (só o administrador vê),
+  é possível liberar, para cada morador, qualquer combinação de:
+  cadastrar/editar despesas, marcar despesas como pagas, ver o saldo do
+  Mercado Pago, gerenciar o Casa em dia, gerenciar organização/calendário,
+  gerenciar lista de compras e editar dados de moradores (e-mail/PIX).
+- O administrador sempre tem acesso total, independentemente do que estiver
+  marcado.
+- A checagem é feita tanto na interface quanto no banco (RLS), então mesmo
+  chamando a API diretamente não dá para burlar as permissões.
+
+### 3. Minha página (`/app/eu`)
+
+Painel pessoal com: despesas por mês (destacando o que ainda não foi pago),
+reembolsos pendentes, tarefas do calendário do Casa em dia designadas à
+pessoa e pendências gerais da Organização.
+
+### 4. Casa em dia — calendário (`/app/limpeza/calendario`)
+
+Calendário mensal clicável: clique em um dia para ver as tarefas registradas
+nele ou cadastrar uma nova, com título e uma ou mais pessoas responsáveis.
+O "responsável sugerido automaticamente por rodízio" foi removido do rodízio
+de tarefas fixas — agora quem registra o check-in escolhe manualmente o
+morador.
+
+### 5. Organização (`/app/organizacao`)
+
+- **Tarefas delegadas**: título, prazo e um ou vários responsáveis (ex.:
+  "resolver a internet até dia 9" para um morador, ou "trocar a roupa de
+  cama até dia 20" marcando todos). Cada responsável marca sua própria
+  parte como concluída.
+- **Lista de compras**: adicione itens com quantidade planejada; no
+  supermercado, marque cada item como "no carrinho" pelo celular; depois,
+  em qualquer momento, lance a quantidade comprada e o valor unitário de
+  cada item para acompanhar o gasto real por item ao longo do tempo.
+
+### 6. Reembolsos em despesas
+
+Ao cadastrar ou editar uma despesa, marque "gera reembolso" e informe o
+valor por pessoa (igual para todos os participantes da divisão). Isso:
+
+1. Marca a parcela de cada morador como "reembolso pendente";
+2. Cria automaticamente uma tarefa em Organização (não no calendário da
+   casa) pedindo para solicitar o reembolso;
+3. Permite marcar cada reembolso como pago individualmente na página de
+   Despesas (mesma permissão de "marcar despesas como pagas").
+
+### 7. Chave PIX
+
+Em **Moradores**, cada morador pode ter uma chave PIX cadastrada por quem
+tiver a permissão "gerenciar moradores" (ou o administrador). A chave fica
+visível para todos os moradores ativos.
+
+### 8. Lembretes de vencimento por e-mail (Resend)
+
+- **É viável**: o plano gratuito do Resend permite 3.000 e-mails/mês e
+  100/dia — muito mais do que uma casa de 5 pessoas usa mesmo enviando um
+  lembrete por parcela em aberto todos os dias.
+- Passos: crie uma conta no Resend, verifique um domínio de envio (Domains
+  → Add Domain) e defina na Vercel:
+  ```
+  RESEND_API_KEY=re_...
+  RESEND_FROM="Casa Cinco <avisos@seudominio.com>"
+  NEXT_PUBLIC_APP_URL=https://SEU-APP.vercel.app
+  ```
+- Sem essas variáveis, os lembretes ficam desativados automaticamente (o
+  resto do cron diário continua funcionando normalmente).
+- Em Configurações, o administrador pode ligar/desligar os lembretes e
+  escolher com quantos dias de antecedência avisar.
+- Cada parcela recebe no máximo um lembrete por dia (controlado pela tabela
+  `expense_reminder_log`), então não há risco de spam mesmo rodando o cron
+  várias vezes.
+
+### 9. Bug do Mercado Pago corrigido
+
+**Causa raiz**: a API do Mercado Pago responde `202` quando aceita gerar um
+novo relatório, mas responde `203 Non-Authoritative Information` quando
+*entende* o pedido só que **não consegue gerar o relatório** — pedindo para
+tentar de novo com as datas sugeridas pelo sistema. Como `203` também é um
+status HTTP "2xx", o código antigo tratava qualquer resposta 2xx como
+sucesso, então nunca percebia que o relatório não tinha sido criado de
+verdade — por isso a mensagem genérica "nova atualização solicitada" se
+repetia para sempre sem nenhum relatório aparecer.
+
+Agora `generateBankReport` trata `202` e `203` separadamente, e a tela de
+**Configurações** mostra o diagnóstico real depois de cada sincronização:
+quantos relatórios existem, o status do mais recente e, se o Mercado Pago
+recusou o pedido, o motivo devolvido por ele. Sincronize novamente pelo app
+e leia a mensagem — ela agora conta o que está de fato acontecendo do lado
+do Mercado Pago.
+
+### 10. Responsividade mobile
+
+Foi feita uma revisão geral do CSS para telas pequenas: menu lateral vira uma
+barra inferior fixa no celular, grades de 2/3/4 colunas colapsam para uma
+coluna, formulários, cards de despesas, calendário e tabelas passam a
+ocupar a largura da tela sem cortar conteúdo. Ainda vale testar no seu
+aparelho real após o deploy — ajustes finos de pixel podem ser necessários
+em telas muito específicas.

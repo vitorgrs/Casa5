@@ -1,6 +1,15 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
+export type PermissionKey =
+  | "manage_expenses"
+  | "mark_expenses_paid"
+  | "view_wallet_balance"
+  | "manage_chores"
+  | "manage_tasks"
+  | "manage_shopping"
+  | "manage_members";
+
 export type AppProfile = {
   id: string;
   full_name: string;
@@ -9,7 +18,13 @@ export type AppProfile = {
   status: "pending" | "active";
   household_id: string | null;
   member_id: string | null;
+  permissions: Partial<Record<PermissionKey, boolean>>;
 };
+
+export function can(profile: AppProfile, perm: PermissionKey): boolean {
+  if (profile.role === "admin") return true;
+  return Boolean(profile.permissions?.[perm]);
+}
 
 export async function requireUser() {
   const supabase = await createClient();
@@ -22,7 +37,7 @@ export async function requireActiveProfile(): Promise<{ profile: AppProfile; sup
   const { supabase, user } = await requireUser();
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, full_name, email, role, status, household_id, member_id")
+    .select("id, full_name, email, role, status, household_id, member_id, permissions")
     .eq("id", user.id)
     .single();
 
@@ -30,13 +45,24 @@ export async function requireActiveProfile(): Promise<{ profile: AppProfile; sup
     redirect("/aguardando");
   }
 
-  return { profile: profile as AppProfile, supabase };
+  return {
+    profile: { ...profile, permissions: profile.permissions ?? {} } as AppProfile,
+    supabase,
+  };
 }
 
 export async function requireAdmin() {
   const result = await requireActiveProfile();
   if (result.profile.role !== "admin") {
-    throw new Error("Somente o Vitor pode editar os dados da casa.");
+    throw new Error("Somente o administrador pode fazer isso.");
+  }
+  return result;
+}
+
+export async function requirePermission(perm: PermissionKey) {
+  const result = await requireActiveProfile();
+  if (!can(result.profile, perm)) {
+    throw new Error("Você não tem permissão para fazer isso. Peça ao administrador para liberar o acesso em Configurações > Permissões.");
   }
   return result;
 }

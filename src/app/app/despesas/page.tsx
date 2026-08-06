@@ -6,9 +6,9 @@ import {
   WalletIcon,
 } from "@/components/icons";
 import { StatusPill } from "@/components/status-pill";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
-import { deleteExpense, setPaymentStatus } from "./actions";
+import { deleteExpense, setPaymentStatus, setReimbursementStatus } from "./actions";
 import { ExpenseForm } from "./expense-form";
 
 type Search = { month?: string; novo?: string };
@@ -36,6 +36,8 @@ export default async function ExpensesPage({
   const selectedMonth = validMonth(params.month);
   const baseRoute = `/app/despesas?month=${selectedMonth}`;
   const { profile, supabase } = await requireActiveProfile();
+  const canManageExpenses = can(profile, "manage_expenses");
+  const canMarkPaid = can(profile, "mark_expenses_paid");
   const [{ data: members }, { data: expenses }] = await Promise.all([
     supabase
       .from("household_members")
@@ -46,7 +48,7 @@ export default async function ExpensesPage({
     supabase
       .from("expenses")
       .select(
-        "id,title,category,description,reference_month,due_date,amount,estimated,split_mode,status,recurrence,expense_shares(id,member_id,amount,payment_status,paid_at,member:household_members(id,name,initials,color_key))",
+        "id,title,category,description,reference_month,due_date,amount,estimated,split_mode,status,recurrence,has_reimbursement,reimbursement_amount,expense_shares(id,member_id,amount,payment_status,paid_at,reimbursement_status,reimbursement_paid_at,member:household_members(id,name,initials,color_key))",
       )
       .eq("household_id", profile.household_id)
       .eq("reference_month", `${selectedMonth}-01`)
@@ -85,7 +87,7 @@ export default async function ExpensesPage({
               ›
             </Link>
           </div>
-          {profile.role === "admin" && (
+          {canManageExpenses && (
             <Link
               className="button primary"
               href={`/app/despesas?month=${selectedMonth}&novo=1`}
@@ -137,7 +139,7 @@ export default async function ExpensesPage({
         </div>
       </div>
 
-      {params.novo === "1" && profile.role === "admin" && (
+      {params.novo === "1" && canManageExpenses && (
         <section className="card pad" style={{ marginTop: 16 }}>
           <div
             className="card-head"
@@ -225,7 +227,7 @@ export default async function ExpensesPage({
                         </div>
                         <div className="share-actions">
                           <StatusPill status={share.payment_status} />
-                          {profile.role === "admin" && (
+                          {canMarkPaid && (
                             <form action={setPaymentStatus}>
                               <input
                                 type="hidden"
@@ -257,6 +259,29 @@ export default async function ExpensesPage({
                             </form>
                           )}
                         </div>
+                        {share.reimbursement_status !== "not_applicable" && (
+                          <div className="share-actions" style={{ marginTop: 6 }}>
+                            <span
+                              className={`status-pill ${share.reimbursement_status === "paid" ? "success" : "warn"}`}
+                            >
+                              Reembolso {share.reimbursement_status === "paid" ? "pago" : "pendente"}
+                            </span>
+                            {canMarkPaid && (
+                              <form action={setReimbursementStatus}>
+                                <input type="hidden" name="share_id" value={share.id} />
+                                <input
+                                  type="hidden"
+                                  name="status"
+                                  value={share.reimbursement_status === "paid" ? "pending" : "paid"}
+                                />
+                                <input type="hidden" name="redirect_to" value={baseRoute} />
+                                <button className="button ghost small" type="submit">
+                                  {share.reimbursement_status === "paid" ? "Desfazer reembolso" : "Marcar reembolso pago"}
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -286,7 +311,7 @@ export default async function ExpensesPage({
                   </span>
                 </div>
               </div>
-              {profile.role === "admin" && (
+              {canManageExpenses && (
                 <details className="details-editor">
                   <summary>
                     <EditIcon

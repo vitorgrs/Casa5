@@ -25,3 +25,5 @@ export const FireIcon = (props: IconProps) => <IconBase {...props}><path d="M12 
 export const LogoutIcon = (props: IconProps) => <IconBase {...props}><path d="M10 17l5-5-5-5M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></IconBase>;
 export const CalendarIcon = (props: IconProps) => <IconBase {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></IconBase>;
 export const EditIcon = (props: IconProps) => <IconBase {...props}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></IconBase>;
+export const ChecklistIcon = (props: IconProps) => <IconBase {...props}><path d="m3 6 2 2 3-3"/><path d="M9 6h12"/><path d="m3 13 2 2 3-3"/><path d="M9 13h12"/><path d="m3 20 2 2 3-3"/><path d="M9 20h12"/></IconBase>;
+export const CartIcon = (props: IconProps) => <IconBase {...props}><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M2 3h2l2.6 12.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L21 8H6"/></IconBase>;

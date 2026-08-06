@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
+import { PERMISSION_CATALOG } from "@/lib/permissions";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -51,14 +52,59 @@ export async function syncMercadoPago() {
       profile.id,
     );
     revalidatePath("/app/configuracoes");
-    const message = result.imported
-      ? "Novo relatório importado e próxima atualização solicitada."
-      : "Nenhum relatório novo; uma nova atualização foi solicitada ao Mercado Pago.";
-    destination = `/app/configuracoes?success=${encodeURIComponent(message)}`;
+
+    let message: string;
+    if (result.imported) {
+      message = "Novo relatório importado com sucesso.";
+    } else if (result.reportsFound === 0 && result.requestDetail) {
+      message = `O Mercado Pago recusou a criação do relatório. ${result.requestDetail}`;
+    } else if (result.reportsFound === 0) {
+      message =
+        "Nenhum relatório encontrado ainda. Uma nova geração foi solicitada; isso pode levar algumas horas na primeira vez.";
+    } else if (result.latestReportStatus && result.latestReportStatus !== "processed") {
+      message = `Já existe um relatório sendo processado pelo Mercado Pago (status: ${result.latestReportStatus}). Aguarde e sincronize novamente em algumas horas.`;
+    } else {
+      message = "Nenhum relatório novo encontrado desde a última sincronização.";
+    }
+    const kind = result.imported || result.reportsFound > 0 ? "success" : "error";
+    destination = `/app/configuracoes?${kind}=${encodeURIComponent(message)}`;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Falha ao sincronizar.";
     destination = `/app/configuracoes?error=${encodeURIComponent(message)}`;
   }
   redirect(destination);
+}
+
+export async function updatePermissions(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes/permissoes");
+  const { supabase } = await requireAdmin();
+  const profileId = String(formData.get("profile_id"));
+  const permissions: Record<string, boolean> = {};
+  for (const item of PERMISSION_CATALOG) {
+    permissions[item.key] = formData.get(`perm_${item.key}`) === "on";
+  }
+  const { error } = await supabase
+    .from("profiles")
+    .update({ permissions })
+    .eq("id", profileId);
+  if (error) throw new Error(error.message);
+  revalidatePath(pathOf(returnTo));
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Permissões atualizadas.")}`);
+}
+
+export async function updateReminderSettings(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes");
+  const { profile, supabase } = await requireAdmin();
+  const remindersEnabled = formData.get("reminders_enabled") === "on";
+  const daysBefore = Math.min(Math.max(Number(formData.get("reminder_days_before") ?? 3), 0), 14);
+  const { error } = await supabase.from("household_settings").upsert({
+    household_id: profile.household_id,
+    reminders_enabled: remindersEnabled,
+    reminder_days_before: daysBefore,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath(pathOf(returnTo));
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Preferências de lembrete salvas.")}`);
 }

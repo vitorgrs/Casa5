@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowIcon, CalendarIcon, ClockIcon, FireIcon, SparkIcon, TrophyIcon, WalletIcon } from "@/components/icons";
 import { StatusPill } from "@/components/status-pill";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, daysUntil, monthLabel } from "@/lib/format";
 
 type MemberRelation = { id: string; name: string; initials: string; color_key: string } | null;
@@ -15,6 +15,7 @@ function dashboardMonth() {
 
 export default async function DashboardPage() {
   const { profile, supabase } = await requireActiveProfile();
+  const canViewWallet = can(profile, "view_wallet_balance");
   const refMonth = dashboardMonth();
   const start = new Date(refMonth);
   const next = new Date(start);
@@ -24,7 +25,9 @@ export default async function DashboardPage() {
 
   const [expenseResult, walletResult, membersResult, logsResult, choresResult] = await Promise.all([
     supabase.from("expenses").select("id,title,category,due_date,amount,status,estimated,expense_shares(id,amount,payment_status,member:household_members(id,name,initials,color_key))").eq("household_id", profile.household_id).eq("reference_month", refMonth).order("due_date", { ascending: true, nullsFirst: false }),
-    supabase.from("wallet_snapshots").select("balance,source,observed_at").eq("household_id", profile.household_id).order("observed_at", { ascending: false }).limit(1).maybeSingle(),
+    canViewWallet
+      ? supabase.from("wallet_snapshots").select("balance,source,observed_at").eq("household_id", profile.household_id).order("observed_at", { ascending: false }).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
     supabase.from("household_members").select("id,name,initials,color_key").eq("household_id", profile.household_id).eq("active", true).order("display_order"),
     supabase.from("chore_logs").select("id,member_id,points_awarded,reference_date,completed_at,chore:chores(title)").gte("reference_date", weekAgo.toISOString().slice(0, 10)).order("completed_at", { ascending: false }),
     supabase.from("chores").select("id,title,points,frequency").eq("household_id", profile.household_id).eq("active", true).limit(5)
@@ -55,13 +58,13 @@ export default async function DashboardPage() {
     <>
       <div className="page-head">
         <div><span className="eyebrow">Visão geral • {monthLabel.format(start)}</span><h1>Bom dia, {profile.full_name.split(" ")[0]}.</h1><p>Acompanhe o que vence, o que já entrou e como está a rotina do apartamento.</p></div>
-        {profile.role === "admin" && <div className="page-actions"><Link className="button secondary" href="/app/limpeza"><SparkIcon/> Registrar limpeza</Link><Link className="button primary" href={`/app/despesas?month=${refMonth.slice(0,7)}&novo=1`}><WalletIcon/> Nova despesa</Link></div>}
+        <div className="page-actions"><Link className="button ghost" href="/app/eu">Minha página</Link><Link className="button ghost" href="/app/organizacao">Organização</Link>{can(profile,"manage_chores") && <Link className="button secondary" href="/app/limpeza"><SparkIcon/> Registrar limpeza</Link>}{can(profile,"manage_expenses") && <Link className="button primary" href={`/app/despesas?month=${refMonth.slice(0,7)}&novo=1`}><WalletIcon/> Nova despesa</Link>}</div>
       </div>
 
       <div className="grid cols-4">
         <div className="card metric-card"><div className="metric-top"><span>Gastos do mês</span><span className="metric-icon"><WalletIcon/></span></div><strong className="metric-value">{currency.format(total)}</strong><span className="metric-foot">{expenses.length} contas e compras</span></div>
         <div className="card metric-card"><div className="metric-top"><span>Já confirmado</span><span className="metric-icon"><ArrowIcon/></span></div><strong className="metric-value">{currency.format(received)}</strong><span className="metric-foot good">{progress}% arrecadado</span></div>
-        <div className="card metric-card"><div className="metric-top"><span>Saldo Mercado Pago</span><span className="metric-icon"><WalletIcon/></span></div><strong className="metric-value">{walletResult.data ? currency.format(asNumber(walletResult.data.balance)) : "Não sincronizado"}</strong><span className="metric-foot">{walletResult.data ? `Atualizado em ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}` : "Configure o token em Configurações"}</span></div>
+        <div className="card metric-card"><div className="metric-top"><span>Saldo Mercado Pago</span><span className="metric-icon"><WalletIcon/></span></div><strong className="metric-value">{!canViewWallet ? "Sem acesso" : walletResult.data ? currency.format(asNumber(walletResult.data.balance)) : "Não sincronizado"}</strong><span className="metric-foot">{!canViewWallet ? "Peça permissão ao administrador" : walletResult.data ? `Atualizado em ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}` : "Configure o token em Configurações"}</span></div>
         <div className="card metric-card"><div className="metric-top"><span>Pendências</span><span className="metric-icon"><ClockIcon/></span></div><strong className="metric-value">{pendingPeople}</strong><span className="metric-foot warn">moradores com valores em aberto</span></div>
       </div>
 

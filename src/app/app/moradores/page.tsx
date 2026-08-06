@@ -1,15 +1,16 @@
 import { StatusPill } from "@/components/status-pill";
 import { UsersIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { linkPendingProfile, updateMemberEmail } from "./actions";
 
 export default async function MembersPage() {
   const baseRoute = "/app/moradores";
   const { profile, supabase } = await requireActiveProfile();
+  const canManageMembers = can(profile, "manage_members");
   const [{ data: members }, { data: profiles }] = await Promise.all([
     supabase
       .from("household_members")
-      .select("id,name,email,initials,color_key,is_admin,display_order,active")
+      .select("id,name,email,pix_key,initials,color_key,is_admin,display_order,active")
       .eq("household_id", profile.household_id)
       .order("display_order"),
     supabase
@@ -26,8 +27,9 @@ export default async function MembersPage() {
           <span className="eyebrow">Acessos e divisão</span>
           <h1>Moradores</h1>
           <p>
-            Os cinco podem visualizar o sistema. Apenas o Vitor possui permissão
-            de alteração.
+            Todos podem visualizar moradores e chaves PIX. Edição de dados e
+            liberação de acesso dependem das permissões definidas pelo
+            administrador.
           </p>
         </div>
         <div className="role-chip">
@@ -53,7 +55,11 @@ export default async function MembersPage() {
                   status={linked?.status === "active" ? "active" : "pending"}
                 />
               </div>
-              {profile.role === "admin" && (
+              <div className="pix-display">
+                <span className="muted-text" style={{ fontSize: 10 }}>Chave PIX</span>
+                <strong>{member.pix_key ?? "Não cadastrada"}</strong>
+              </div>
+              {canManageMembers && (
                 <form
                   action={updateMemberEmail}
                   className="stack-form"
@@ -70,8 +76,16 @@ export default async function MembersPage() {
                       placeholder="morador@email.com"
                     />
                   </label>
+                  <label>
+                    Chave PIX
+                    <input
+                      name="pix_key"
+                      defaultValue={member.pix_key ?? ""}
+                      placeholder="CPF, e-mail, telefone ou chave aleatória"
+                    />
+                  </label>
                   <button className="button secondary small" type="submit">
-                    Salvar e-mail
+                    Salvar dados
                   </button>
                 </form>
               )}
@@ -147,10 +161,11 @@ export default async function MembersPage() {
       <section className="card pad" style={{ marginTop: 16 }}>
         <h3 style={{ marginTop: 0 }}>Como funciona a permissão</h3>
         <p className="note">
-          O banco utiliza políticas de segurança por linha. Usuários ativos
-          conseguem apenas consultar os dados da Casa Cinco; inclusões,
-          alterações e exclusões são aceitas somente quando o perfil autenticado
-          possui a função de administrador.
+          O banco utiliza políticas de segurança por linha (RLS). Usuários
+          ativos sempre conseguem consultar os dados da casa; inclusões,
+          alterações e exclusões dependem da função de administrador ou da
+          permissão específica liberada em Configurações {"->"} Permissões dos
+          moradores.
         </p>
       </section>
     </>

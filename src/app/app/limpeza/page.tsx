@@ -6,7 +6,7 @@ import {
   SparkIcon,
   TrophyIcon,
 } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { createChore, checkInChore, deleteChore } from "./actions";
 
 const weekdays = [
@@ -54,6 +54,7 @@ export default async function ChoresPage({
   const params = await searchParams;
   const baseRoute = "/app/limpeza";
   const { profile, supabase } = await requireActiveProfile();
+  const canManageChores = can(profile, "manage_chores");
   const weekStart = startOfWeek();
   const monthStart = new Date();
   monthStart.setDate(1);
@@ -98,14 +99,6 @@ export default async function ChoresPage({
     .map((member) => ({ ...member, points: pointMap.get(member.id) ?? 0 }))
     .sort((a, b) => b.points - a.points);
   const streak = calculateStreak((logs ?? []).map((log) => log.reference_date));
-  const weekNumber = Math.ceil(
-    ((new Date().getTime() -
-      new Date(new Date().getFullYear(), 0, 1).getTime()) /
-      86400000 +
-      new Date(new Date().getFullYear(), 0, 1).getDay() +
-      1) /
-      7,
-  );
 
   return (
     <>
@@ -118,11 +111,16 @@ export default async function ChoresPage({
             com a casa.
           </p>
         </div>
-        {profile.role === "admin" && (
-          <Link className="button primary" href="/app/limpeza?novo=1">
-            <PlusIcon /> Nova tarefa
+        <div className="page-actions">
+          <Link className="button ghost" href="/app/limpeza/calendario">
+            Ver calendário
           </Link>
-        )}
+          {canManageChores && (
+            <Link className="button primary" href="/app/limpeza?novo=1">
+              <PlusIcon /> Nova tarefa
+            </Link>
+          )}
+        </div>
       </div>
 
       <div className="grid cols-3">
@@ -165,7 +163,7 @@ export default async function ChoresPage({
         </div>
       </div>
 
-      {params.novo === "1" && profile.role === "admin" && (
+      {params.novo === "1" && canManageChores && (
         <section className="card pad" style={{ marginTop: 16 }}>
           <div
             className="card-head"
@@ -263,8 +261,7 @@ export default async function ChoresPage({
             <div>
               <h2>Tarefas da casa</h2>
               <span className="muted-text" style={{ fontSize: 10 }}>
-                O responsável sugerido muda automaticamente pelo número da
-                semana.
+                Rodízio de responsáveis; registre manualmente quem concluiu.
               </span>
             </div>
           </div>
@@ -273,14 +270,6 @@ export default async function ChoresPage({
               const assignments = [...(chore.chore_assignments ?? [])].sort(
                 (a, b) => a.rotation_order - b.rotation_order,
               );
-              const suggested = assignments.length
-                ? assignments[weekNumber % assignments.length]
-                : null;
-              const suggestedMember = suggested
-                ? Array.isArray(suggested.member)
-                  ? suggested.member[0]
-                  : suggested.member
-                : null;
               return (
                 <article className="chore-card" key={chore.id}>
                   <div className="chore-card-head">
@@ -313,14 +302,8 @@ export default async function ChoresPage({
                         ? ` • ${weekdays[chore.weekday]}`
                         : ""}
                     </span>
-                    <span>
-                      Sugerido:{" "}
-                      <strong>
-                        {suggestedMember?.name?.split(" ")[0] ?? "livre"}
-                      </strong>
-                    </span>
                   </div>
-                  {profile.role === "admin" && (
+                  {canManageChores && (
                     <details
                       className="details-editor"
                       style={{ margin: "14px -16px -16px" }}
@@ -349,12 +332,7 @@ export default async function ChoresPage({
                           />
                           <label>
                             Morador
-                            <select
-                              name="member_id"
-                              defaultValue={
-                                suggested?.member_id ?? members?.[0]?.id
-                              }
-                            >
+                            <select name="member_id" defaultValue={members?.[0]?.id}>
                               {(members ?? []).map((member) => (
                                 <option value={member.id} key={member.id}>
                                   {member.name}

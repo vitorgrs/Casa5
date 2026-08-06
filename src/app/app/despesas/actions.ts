@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requirePermission } from "@/lib/auth";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -66,7 +66,7 @@ function makeShares(
 
 export async function createExpense(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_expenses");
   const title = String(formData.get("title") ?? "").trim();
   const amount = money(formData.get("amount"));
   const splitMode = String(formData.get("split_mode") ?? "equal");
@@ -74,14 +74,11 @@ export async function createExpense(formData: FormData) {
   const allowCustomMismatch =
     String(formData.get("allow_custom_mismatch") ?? "0") === "1";
   const shares = makeShares(formData, amount, splitMode, allowCustomMismatch);
-
-  // Campos de reembolso
-  const refundExists = formData.get("refund_exists") === "on";
-  const refundTotalAmount = money(formData.get("refund_total_amount"));
-  const refundDescription = String(formData.get("refund_description") ?? "") || null;
-  const refundResponsibleEntity = String(formData.get("refund_responsible_entity") ?? "") || null;
-  const refundDueDate = String(formData.get("refund_due_date") ?? "") || null;
-  const refundReference = String(formData.get("refund_reference") ?? "") || null;
+  const hasReimbursement = formData.get("has_reimbursement") === "on";
+  const reimbursementAmount = hasReimbursement
+    ? money(formData.get("reimbursement_amount"))
+    : null;
+  const dueDate = String(formData.get("due_date") ?? "") || null;
 
   const { data: expense, error } = await supabase
     .from("expenses")
@@ -91,13 +88,15 @@ export async function createExpense(formData: FormData) {
       category: String(formData.get("category") ?? "Outros"),
       description: String(formData.get("description") ?? "") || null,
       reference_month: firstDay(String(formData.get("reference_month") ?? "")),
-      due_date: String(formData.get("due_date") ?? "") || null,
+      due_date: dueDate,
       amount,
       estimated: formData.get("estimated") === "on",
       split_mode: splitMode,
       status: amount === null ? "planned" : "open",
       recurrence,
       series_id: recurrence === "monthly" ? crypto.randomUUID() : null,
+      has_reimbursement: hasReimbursement,
+      reimbursement_amount: reimbursementAmount,
       created_by: profile.id,
     })
     .select("id")
@@ -105,47 +104,26 @@ export async function createExpense(formData: FormData) {
 
   if (error || !expense)
     throw new Error(error?.message ?? "Não foi possível criar a despesa.");
-
   if (shares.length) {
-    const { error: shareError } = await supabase
-      .from("expense_shares")
-      .insert(shares.map((share) => ({ ...share, expense_id: expense.id })));
+    const { error: shareError } = await supabase.from("expense_shares").insert(
+      shares.map((share) => ({
+        ...share,
+        expense_id: expense.id,
+        reimbursement_status: hasReimbursement ? "pending" : "not_applicable",
+      })),
+    );
     if (shareError) throw new Error(shareError.message);
   }
 
-  // Criar reembolso se solicitado
-  if (refundExists) {
-    const { data: refund, error: refundError } = await supabase
-      .from("expense_refunds")
-      .insert({
-        expense_id: expense.id,
-        household_id: profile.household_id,
-        total_amount: refundTotalAmount,
-        description: refundDescription,
-        responsible_entity: refundResponsibleEntity,
-        due_date: refundDueDate,
-        reference: refundReference,
-        status: 'a_solicitar',
-        requested_by: profile.id,
-        created_by: profile.id,
-        updated_by: profile.id,
-      })
-      .select("id")
-      .single();
-
-    if (refundError || !refund)
-      throw new Error(refundError?.message ?? "Não foi possível criar o reembolso.");
-
-    // Registrar evento de sistema para o reembolso solicitado
-    await supabase.from("system_events").insert({
+  if (hasReimbursement && shares.length) {
+    await supabase.from("tasks").insert({
       household_id: profile.household_id,
-      event_type: 'refund_solicited',
-      title: `Reembolso solicitado: ${title}`,
-      detail: `R$ ${refundTotalAmount?.toFixed(2)} para ${refundResponsibleEntity || 'entidade responsável'}`, metadata: {
-        expense_id: expense.id,
-        refund_id: refund.id,
-        created_by: profile.id,
-      },
+      scope: "geral",
+      title: `Pedir reembolso: ${title}`,
+      description: `Reembolso de R$ ${(reimbursementAmount ?? 0).toFixed(2)} por pessoa referente à despesa "${title}".`,
+      due_date: dueDate,
+      source: "reimbursement",
+      source_expense_id: expense.id,
       created_by: profile.id,
     });
   }
@@ -156,23 +134,29 @@ export async function createExpense(formData: FormData) {
 
 export async function updateExpense(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_expenses");
   const expenseId = String(formData.get("expense_id"));
   const amount = money(formData.get("amount"));
   const splitMode = String(formData.get("split_mode") ?? "equal");
   const allowCustomMismatch =
     String(formData.get("allow_custom_mismatch") ?? "0") === "1";
   const shares = makeShares(formData, amount, splitMode, allowCustomMismatch);
+  const hasReimbursement = formData.get("has_reimbursement") === "on";
+  const reimbursementAmount = hasReimbursement
+    ? money(formData.get("reimbursement_amount"))
+    : null;
+  const title = String(formData.get("title") ?? "").trim();
+  const dueDate = String(formData.get("due_date") ?? "") || null;
 
   const [{ data: currentShares }, { data: currentExpense }] = await Promise.all(
     [
       supabase
         .from("expense_shares")
-        .select("member_id,payment_status,paid_at,payment_method,note")
+        .select("member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at")
         .eq("expense_id", expenseId),
       supabase
         .from("expenses")
-        .select("series_id")
+        .select("series_id,has_reimbursement")
         .eq("id", expenseId)
         .single(),
     ],
@@ -183,6 +167,8 @@ export async function updateExpense(formData: FormData) {
     paid_at: string | null;
     payment_method: string | null;
     note: string | null;
+    reimbursement_status: string;
+    reimbursement_paid_at: string | null;
   };
   const previous = new Map<string, PreviousShare>(
     (currentShares ?? []).map((share: PreviousShare) => [
@@ -194,11 +180,11 @@ export async function updateExpense(formData: FormData) {
   const { error } = await supabase
     .from("expenses")
     .update({
-      title: String(formData.get("title") ?? "").trim(),
+      title,
       category: String(formData.get("category") ?? "Outros"),
       description: String(formData.get("description") ?? "") || null,
       reference_month: firstDay(String(formData.get("reference_month") ?? "")),
-      due_date: String(formData.get("due_date") ?? "") || null,
+      due_date: dueDate,
       amount,
       estimated: formData.get("estimated") === "on",
       split_mode: splitMode,
@@ -208,6 +194,8 @@ export async function updateExpense(formData: FormData) {
         String(formData.get("recurrence") ?? "once") === "monthly"
           ? (currentExpense?.series_id ?? crypto.randomUUID())
           : currentExpense?.series_id,
+      has_reimbursement: hasReimbursement,
+      reimbursement_amount: reimbursementAmount,
     })
     .eq("id", expenseId)
     .eq("household_id", profile.household_id);
@@ -226,10 +214,30 @@ export async function updateExpense(formData: FormData) {
           paid_at: old?.paid_at ?? null,
           payment_method: old?.payment_method ?? null,
           note: old?.note ?? null,
+          reimbursement_status: hasReimbursement
+            ? (old?.reimbursement_status && old.reimbursement_status !== "not_applicable"
+                ? old.reimbursement_status
+                : "pending")
+            : "not_applicable",
+          reimbursement_paid_at: hasReimbursement ? (old?.reimbursement_paid_at ?? null) : null,
         };
       }),
     );
     if (shareError) throw new Error(shareError.message);
+  }
+
+  // Se o reembolso acabou de ser ativado nesta edição, cria a tarefa de cobrança.
+  if (hasReimbursement && !currentExpense?.has_reimbursement && shares.length) {
+    await supabase.from("tasks").insert({
+      household_id: profile.household_id,
+      scope: "geral",
+      title: `Pedir reembolso: ${title}`,
+      description: `Reembolso de R$ ${(reimbursementAmount ?? 0).toFixed(2)} por pessoa referente à despesa "${title}".`,
+      due_date: dueDate,
+      source: "reimbursement",
+      source_expense_id: expenseId,
+      created_by: profile.id,
+    });
   }
 
   revalidatePath(pathOf(returnTo));
@@ -238,7 +246,7 @@ export async function updateExpense(formData: FormData) {
 
 export async function setPaymentStatus(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("mark_expenses_paid");
   const shareId = String(formData.get("share_id"));
   const status = String(formData.get("status"));
   const { data: changed, error } = await supabase
@@ -285,56 +293,20 @@ export async function deleteExpense(formData: FormData) {
   redirect(returnTo);
 }
 
-export async function updateRefundStatus(formData: FormData) {
+export async function setReimbursementStatus(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { profile, supabase } = await requireAdmin();
-  const refundId = String(formData.get("refund_id"));
+  const { supabase } = await requirePermission("mark_expenses_paid");
+  const shareId = String(formData.get("share_id"));
   const status = String(formData.get("status"));
-  const receivedAmount = money(formData.get("received_amount"));
-  const receivedAt = String(formData.get("received_at") ?? "") || null;
-  const distributedAt = String(formData.get("distributed_at") ?? "") || null;
-  const note = String(formData.get("note") ?? "") || null;
-
-  const updateData: any = {
-    status,
-    updated_by: profile.id,
-  };
-
-  if (status === "solicitado" && receivedAt) updateData.requested_at = receivedAt;
-  if (status === "recebido" || status === "distribuido") {
-    if (receivedAmount) updateData.received_amount = receivedAmount;
-    if (receivedAt) updateData.received_at = receivedAt;
-  }
-  if (status === "distribuido" && distributedAt) updateData.distributed_at = distributedAt;
-
-  if (note) updateData.note = note;
-
   const { error } = await supabase
-    .from("expense_refunds")
-    .update(updateData)
-    .eq("id", refundId)
-    .eq("household_id", profile.household_id);
-
+    .from("expense_shares")
+    .update({
+      reimbursement_status: status,
+      reimbursement_paid_at: status === "paid" ? new Date().toISOString() : null,
+    })
+    .eq("id", shareId)
+    .neq("reimbursement_status", "not_applicable");
   if (error) throw new Error(error.message);
-
-  // Registrar evento de sistema para a mudança de status
-  const { data: refund } = await supabase
-    .from("expense_refunds")
-    .select("expense_id")
-    .eq("id", refundId)
-    .single();
-
-  if (refund) {
-    await supabase.from("system_events").insert({
-      household_id: profile.household_id,
-      event_type: `refund_${status}`,
-      title: `Reembolso ${status}: ID ${refundId.substring(0, 8)}`,
-      detail: status,
-      metadata: { expense_id: refund.expense_id, refund_id: refundId, updated_by: profile.id },
-      created_by: profile.id,
-    });
-  }
-
   revalidatePath(pathOf(returnTo));
   redirect(returnTo);
 }

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requirePermission } from "@/lib/auth";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -15,14 +15,15 @@ function pathOf(url: string) {
 
 export async function updateMemberEmail(formData: FormData) {
   const returnTo = destination(formData, "/app/moradores");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_members");
   const email =
     String(formData.get("email") ?? "")
       .trim()
       .toLowerCase() || null;
+  const pixKey = String(formData.get("pix_key") ?? "").trim() || null;
   const { error } = await supabase
     .from("household_members")
-    .update({ email })
+    .update({ email, pix_key: pixKey })
     .eq("id", String(formData.get("member_id")))
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);

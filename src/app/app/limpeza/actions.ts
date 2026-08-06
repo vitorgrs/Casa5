@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requirePermission } from "@/lib/auth";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -15,7 +15,7 @@ function pathOf(url: string) {
 
 export async function createChore(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_chores");
   const memberIds = formData.getAll("members").map(String);
   const { data: chore, error } = await supabase
     .from("chores")
@@ -54,7 +54,7 @@ export async function createChore(formData: FormData) {
 
 export async function checkInChore(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_chores");
   const choreId = String(formData.get("chore_id"));
   const memberId = String(formData.get("member_id"));
   const referenceDate = String(

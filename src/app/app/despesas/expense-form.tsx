@@ -16,21 +16,9 @@ type Expense = {
   estimated: boolean;
   split_mode: "equal" | "custom";
   recurrence: "once" | "monthly";
+  has_reimbursement?: boolean;
+  reimbursement_amount?: number | null;
   expense_shares: Share[];
-  refund?: {
-    exists: boolean;
-    total_amount: number | null;
-    description: string | null;
-    responsible_entity: string | null;
-    due_date: string | null;
-    reference: string | null;
-    status: string;
-    requested_at: string | null;
-    received_at: string | null;
-    received_amount: number | null;
-    distributed_at: string | null;
-    members_data: any;
-  };
 };
 
 const categories = [
@@ -91,6 +79,12 @@ export function ExpenseForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [showMismatchModal, setShowMismatchModal] = useState(false);
+  const [hasReimbursement, setHasReimbursement] = useState(
+    expense?.has_reimbursement ?? false,
+  );
+  const [reimbursementAmount, setReimbursementAmount] = useState(
+    expense?.reimbursement_amount?.toFixed(2) ?? "",
+  );
   const action = expense ? updateExpense : createExpense;
   const parsedAmount = Number(amount.replace(",", ".")) || 0;
   const equalValue = selected.size ? parsedAmount / selected.size : 0;
@@ -243,63 +237,6 @@ export function ExpenseForm({
             />
           </label>
         </div>
-
-        {/* CAMPOS DE REEMBOLSO */}
-        <div className="form-section" style={{ marginTop: 20, borderTop: "1px solid #ddd", paddingTop: 16 }}>
-          <h4>Reembolso</h4>
-          <div className="form-grid cols-2">
-            <label className="inline-check">
-              <input
-                type="checkbox"
-                name="refund_exists"
-                defaultChecked={expense?.refund?.exists}
-              />{" "} Existe reembolso?
-            </label>
-            <label className="field">
-              Valor total previsto do reembolso
-              <input
-                type="text"
-                inputMode="decimal"
-                name="refund_total_amount"
-                defaultValue={expense?.refund?.total_amount?.toFixed(2) ?? ""}
-                placeholder="0,00"
-              />
-            </label>
-            <label className="field span-2">
-              Descrição ou motivo
-              <textarea
-                name="refund_description"
-                defaultValue={expense?.refund?.description ?? ""}
-                placeholder="Motivo do reembolso"
-              />
-            </label>
-            <label className="field span-2">
-              Entidade responsável
-              <input
-                name="refund_responsible_entity"
-                defaultValue={expense?.refund?.responsible_entity ?? ""}
-                placeholder="Ex.: Condomínio, Empresa, etc."
-              />
-            </label>
-            <label className="field">
-              Prazo
-              <input
-                name="refund_due_date"
-                type="date"
-                defaultValue={expense?.refund?.due_date ?? ""}
-              />
-            </label>
-            <label className="field">
-              Referência / Comprovante
-              <input
-                name="refund_reference"
-                defaultValue={expense?.refund?.reference ?? ""}
-                placeholder="URL ou descrição do comprovante"
-              />
-            </label>
-          </div>
-        </div>
-
         <div className="form-section">
           <h4>Quem participa desta divisão?</h4>
           <div className="member-check-grid">
@@ -317,7 +254,6 @@ export function ExpenseForm({
             ))}
           </div>
         </div>
-
         {parsedAmount > 0 && (
           <div className="form-section">
             <h4>
@@ -363,6 +299,37 @@ export function ExpenseForm({
             />{" "}
             O valor ainda é uma estimativa
           </label>
+        </div>
+        <div className="form-section">
+          <label className="inline-check">
+            <input
+              name="has_reimbursement"
+              type="checkbox"
+              checked={hasReimbursement}
+              onChange={(event) => setHasReimbursement(event.target.checked)}
+            />{" "}
+            Esta despesa gera reembolso (mesmo valor para cada morador selecionado)
+          </label>
+          {hasReimbursement && (
+            <div className="form-grid cols-3" style={{ marginTop: 12 }}>
+              <label className="field">
+                Valor do reembolso (por pessoa)
+                <input
+                  name="reimbursement_amount"
+                  inputMode="decimal"
+                  required={hasReimbursement}
+                  value={reimbursementAmount}
+                  onChange={(event) => setReimbursementAmount(event.target.value)}
+                  placeholder="0,00"
+                />
+              </label>
+              <p className="note span-2" style={{ margin: 0, alignSelf: "center" }}>
+                Ao salvar, uma tarefa &quot;Pedir reembolso&quot; é criada
+                automaticamente na página de Organização, e cada morador verá
+                que tem um reembolso pendente até você marcar como pago.
+              </p>
+            </div>
+          )}
         </div>
         <div className="form-actions">
           <button className="button primary" type="submit">
