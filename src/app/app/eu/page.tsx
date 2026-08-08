@@ -206,7 +206,7 @@ export default async function MyPage() {
             })}
           </div>
           <div style={{ padding: "0 20px 16px" }}>
-            <Link className="button ghost small" href="/app/limpeza?view=calendario">
+            <Link className="button ghost small" href="/app/limpeza">
               Ver calendário completo
             </Link>
           </div>

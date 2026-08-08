@@ -307,3 +307,88 @@ coluna, formulários, cards de despesas, calendário e tabelas passam a
 ocupar a largura da tela sem cortar conteúdo. Ainda vale testar no seu
 aparelho real após o deploy — ajustes finos de pixel podem ser necessários
 em telas muito específicas.
+
+## Atualização: comprovantes, correções de Mercado Pago/e-mail, redesenho do Casa em dia
+
+### 1. Nova migração — comprovantes e boleto
+
+Rode `supabase/migrations/004_receipts_storage.sql` depois da 003 (ou da 002).
+Ela cria:
+- `expenses.boleto_path/boleto_name/boleto_uploaded_at`
+- `expense_shares.receipt_path/receipt_name/receipt_uploaded_by/receipt_uploaded_at`
+- Um bucket **privado** no Storage chamado `comprovantes`, com políticas de
+  RLS que restringem leitura/escrita aos moradores da mesma casa (e exclusão
+  a quem tiver a permissão `manage_expenses`).
+
+### 2. Comprovante de pagamento e boleto
+
+- Em cada parcela de despesa, qualquer morador pode anexar o próprio
+  comprovante (PDF ou foto) mesmo que a parcela já esteja paga. Quem tem a
+  permissão de editar despesas ou marcar como paga também pode anexar em
+  nome de qualquer morador.
+- O botão "Marcar pago" abre um modal de confirmação **somente quando não
+  há comprovante anexado**, perguntando se quer marcar como paga mesmo
+  assim. Se já existe comprovante, marca direto.
+- Cada despesa pode ter um boleto anexado (quem tem permissão de gerenciar
+  despesas), ficando salvo e visível para todos os moradores da casa.
+- Os arquivos são acessados por link temporário (30 minutos), gerado a cada
+  carregamento da página — não há link público permanente.
+
+### 3. Feedback de carregamento e "Cancelar"
+
+- Novo componente `SubmitButton` mostra "Salvando..." com spinner e
+  desabilita o botão enquanto a ação roda, resolvendo a sensação de "clique
+  não fez nada" quando a Vercel demora alguns segundos.
+- A navegação entre páginas já usa o `loading.tsx` do Next.js (skeleton),
+  mantido como estava.
+- Botão "Cancelar" adicionado aos formulários de nova/editar despesa, nova
+  tarefa (Organização e calendário do Casa em dia), lançar compra.
+
+### 4. Casa em dia — redesenho
+
+- A página principal agora mostra o **calendário do mês** no lugar do
+  quadro de tarefas sugeridas. Clique em um dia para abrir um modal grande
+  com as tarefas daquele dia: título, descrição e quem fez (um ou mais
+  moradores).
+- O rodízio fixo de tarefas recorrentes (limpeza do banheiro, área comum
+  etc.) continua existindo, agora em **Casa em dia → Rodízio fixo**
+  (`/app/limpeza/rotina`).
+
+### 5. Botões padronizados
+
+Adicionado `white-space: nowrap` e tamanho fixo de ícone no CSS global, para
+os botões de ação rápida (Minha página / Organização / Registrar limpeza /
+Nova despesa) pararem de quebrar linha de forma desigual.
+
+### 6. Mercado Pago — segundo bug encontrado
+
+O primeiro bug (status 202/203) já tinha sido corrigido, mas havia um
+**segundo problema mais grave**: o campo `status` retornado pela lista de
+relatórios do Mercado Pago é sempre `"enabled"` — não indica se o relatório
+terminou de processar. O código comparava `status === "processed"`, uma
+condição que nunca acontece, então nenhum relatório era considerado pronto
+e o saldo nunca era importado, mesmo com relatórios já existindo. Corrigido
+para usar a presença de `file_name` como sinal real de que o relatório está
+pronto para download.
+
+### 7. E-mails — como testar e diagnosticar
+
+Adicionei um botão **"Testar / enviar lembretes agora"** em Configurações
+(admin) que roda a mesma lógica do cron manualmente e mostra o erro real do
+Resend, se houver. Prováveis causas de nenhum e-mail ter chegado ainda:
+
+1. **Domínio não verificado no Resend.** Seu `RESEND_FROM` usa
+   `lembretes@casa5.com.br` — esse domínio precisa estar com o status
+   "Verified" em Resend → Domains. Sem isso, o Resend rejeita o envio.
+2. **`NEXT_PUBLIC_APP_URL=http://localhost:3000`** no seu `.env` de produção
+   está incorreto — deveria ser a URL pública do seu app na Vercel (ex.:
+   `https://casa5.vercel.app`). Isso não impede o envio, mas faz o link
+   dentro do e-mail apontar para localhost.
+3. **O cron da Vercel só roda 1x por dia** (plano gratuito). Se você acabou
+   de configurar as variáveis, é normal ainda não ter rodado — use o botão
+   de teste manual para não precisar esperar.
+4. **Nenhuma despesa dentro da janela de lembrete** (padrão: 3 dias antes do
+   vencimento) também faz o teste retornar "0 lembretes enviados" sem erro.
+
+Use o botão de teste manual primeiro — ele vai dizer exatamente qual desses
+casos está acontecendo.

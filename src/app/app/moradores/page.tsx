@@ -1,5 +1,6 @@
 import { StatusPill } from "@/components/status-pill";
 import { UsersIcon } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { linkPendingProfile, updateMemberEmail } from "./actions";
 
@@ -84,9 +85,9 @@ export default async function MembersPage() {
                       placeholder="CPF, e-mail, telefone ou chave aleatória"
                     />
                   </label>
-                  <button className="button secondary small" type="submit">
+                  <SubmitButton className="button secondary small" pendingLabel="Salvando...">
                     Salvar dados
-                  </button>
+                  </SubmitButton>
                 </form>
               )}
             </article>
@@ -143,9 +144,7 @@ export default async function MembersPage() {
                       ))}
                     </select>
                   </label>
-                  <button className="button primary" type="submit">
-                    Liberar acesso
-                  </button>
+                  <SubmitButton pendingLabel="Liberando...">Liberar acesso</SubmitButton>
                 </form>
               ))}
               {pending.length === 0 && (

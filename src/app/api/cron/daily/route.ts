@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
-import { emailConfigured, expenseReminderEmail, sendEmail } from "@/lib/email";
+import { runExpenseReminders } from "@/lib/reminders";
 
 export const maxDuration = 60;
 
@@ -123,74 +123,9 @@ export async function GET(request: Request) {
     }
   }
 
-  if (!emailConfigured()) {
-    result.reminders = "RESEND_API_KEY/RESEND_FROM não configurados";
-  } else {
-    const { data: settings } = await supabase
-      .from("household_settings")
-      .select("reminders_enabled,reminder_days_before")
-      .eq("household_id", householdId)
-      .maybeSingle();
-
-    if (settings?.reminders_enabled === false) {
-      result.reminders = "lembretes desativados nas configurações";
-    } else {
-      const daysBefore = settings?.reminder_days_before ?? 3;
-      const windowEnd = new Date(today);
-      windowEnd.setDate(windowEnd.getDate() + daysBefore);
-      const windowEndIso = windowEnd.toISOString().slice(0, 10);
-
-      const { data: dueExpenses } = await supabase
-        .from("expenses")
-        .select(
-          "id,title,due_date,expense_shares(id,amount,payment_status,member:household_members(name,email))",
-        )
-        .eq("household_id", householdId)
-        .not("due_date", "is", null)
-        .lte("due_date", windowEndIso)
-        .in("status", ["planned", "open"]);
-
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://casa5.vercel.app";
-      let sent = 0;
-
-      for (const expense of dueExpenses ?? []) {
-        const shares = expense.expense_shares ?? [];
-        for (const share of shares) {
-          if (!["pending", "late"].includes(share.payment_status)) continue;
-          const member = Array.isArray(share.member) ? share.member[0] : share.member;
-          if (!member?.email) continue;
-
-          const { error: logError } = await supabase.from("expense_reminder_log").insert({
-            expense_share_id: share.id,
-            reminder_date: todayIso,
-          });
-          // unique(expense_share_id, reminder_date) já impede reenviar no mesmo dia
-          if (logError) continue;
-
-          const dueDate = expense.due_date as string;
-          const daysLeft = Math.round(
-            (new Date(`${dueDate}T00:00:00`).getTime() - today.getTime()) / 86_400_000,
-          );
-          const { subject, html } = expenseReminderEmail({
-            memberName: member.name,
-            expenseTitle: expense.title,
-            amount: Number(share.amount),
-            dueDate,
-            daysLeft,
-            appUrl,
-          });
-          try {
-            await sendEmail({ to: member.email, subject, html });
-            sent += 1;
-          } catch {
-            // não interrompe o restante dos envios por causa de uma falha isolada
-          }
-        }
-      }
-      result.remindersSent = sent;
-      result.reminders = `${sent} lembrete(s) enviado(s)`;
-    }
-  }
+  const reminderResult = await runExpenseReminders(supabase, householdId);
+  result.remindersSent = reminderResult.sent;
+  result.reminders = reminderResult.message;
 
   await supabase.from("system_events").insert({
     household_id: householdId,

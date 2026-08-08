@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useMemo, useRef, useState } from "react";
+import { SubmitButton } from "@/components/submit-button";
 import { createExpense, updateExpense } from "./actions";
 
 type Member = { id: string; name: string; initials: string; color_key: string };
@@ -50,11 +52,13 @@ export function ExpenseForm({
   defaultMonth,
   expense,
   redirectTo,
+  cancelHref,
 }: {
   members: Member[];
   defaultMonth: string;
   expense?: Expense;
   redirectTo?: string;
+  cancelHref?: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const allowMismatchInputRef = useRef<HTMLInputElement>(null);
@@ -332,9 +336,12 @@ export function ExpenseForm({
           )}
         </div>
         <div className="form-actions">
-          <button className="button primary" type="submit">
+          <SubmitButton pendingLabel={expense ? "Salvando..." : "Adicionando..."}>
             {expense ? "Salvar alterações" : "Adicionar despesa"}
-          </button>
+          </SubmitButton>
+          <Link className="button ghost" href={cancelHref ?? redirectTo ?? "/app/despesas"}>
+            Cancelar
+          </Link>
         </div>
       </form>
 

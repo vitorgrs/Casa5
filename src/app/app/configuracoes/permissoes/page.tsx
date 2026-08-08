@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
 import { PERMISSION_CATALOG } from "@/lib/permissions";
 import { ArrowIcon, SettingsIcon } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { updatePermissions } from "../actions";
 
 export default async function PermissionsPage({
@@ -84,9 +85,9 @@ export default async function PermissionsPage({
                     </label>
                   ))}
                 </div>
-                <button className="button primary" type="submit" style={{ marginTop: 16 }}>
+                <SubmitButton pendingLabel="Salvando..." style={{ marginTop: 16 }}>
                   Salvar permissões de {item.full_name.split(" ")[0]}
-                </button>
+                </SubmitButton>
               </form>
             </section>
           );

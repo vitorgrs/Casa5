@@ -170,8 +170,20 @@ type ReportItem = {
   date_created?: string;
   generation_date?: string;
   last_modified?: string;
+  download_date?: string;
   begin_date: string;
   end_date: string;
+  /**
+   * ATENÇÃO: apesar do nome, este campo NÃO indica se o relatório terminou
+   * de ser processado. Segundo a documentação oficial do Mercado Pago,
+   * "status" aqui é sempre "enabled" para qualquer relatório válido (ativo,
+   * não removido) — não é um status de processamento como "pending" ou
+   * "processed". O bug antigo comparava `status === "processed"`, que
+   * NUNCA é verdadeiro, então nenhum relatório era considerado pronto e o
+   * saldo nunca era importado. O indicador correto de que o relatório está
+   * pronto para download é a presença de `file_name` (e, quando disponível,
+   * `download_date`).
+   */
   status?: string;
 };
 
@@ -250,9 +262,9 @@ export async function syncLatestMercadoPagoReport(
 ) {
   await ensureBankReportConfig();
   const reports = await listBankReports();
-  const latestReadyReport = reports.find(
-    (report) => Boolean(report.file_name) && (!report.status || report.status === "processed")
-  );
+  // Pronto para importar = tem file_name (o campo "status" NÃO serve pra
+  // isso, ver comentário no tipo ReportItem acima).
+  const latestReadyReport = reports.find((report) => Boolean(report.file_name));
 
   let imported = false;
   let balance: number | null = null;
@@ -309,7 +321,7 @@ export async function syncLatestMercadoPagoReport(
     reportsFound: reports.length,
     requested,
     requestDetail,
-    latestReportStatus: reports[0]?.status ?? null,
+    latestReportReady: Boolean(reports[0]?.file_name),
     latestReportDate: reports[0] ? new Date(reportTimestamp(reports[0])).toISOString() : null
   };
 }

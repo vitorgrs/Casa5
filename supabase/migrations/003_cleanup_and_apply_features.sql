@@ -1,18 +1,24 @@
--- Casa Cinco — permissões granulares, página pessoal, reembolsos, PIX,
--- organização (tarefas delegadas + calendário) e lista de compras.
+-- Casa Cinco — limpeza das tabelas criadas manualmente que a aplicação NÃO
+-- usa (user_permissions, expense_refunds) e aplicação da migração 002 com
+-- o modelo de permissões/reembolso que o código realmente lê e escreve.
 --
--- ATENÇÃO: se o seu banco tem tabelas manuais extras (ex.: user_permissions,
--- expense_refunds) que não são usadas pela aplicação, rode em vez deste
--- arquivo o `003_cleanup_and_apply_features.sql`, que remove essas tabelas
--- e já inclui tudo daqui. Só rode este 002 diretamente se o seu banco ainda
--- estiver exatamente igual ao 001_initial.sql.
+-- Rode este arquivo inteiro de uma vez no SQL Editor do Supabase, depois do
+-- 001_initial.sql. Ele substitui a necessidade de rodar 002_features.sql
+-- separadamente (o conteúdo dela está incluído aqui).
 --
--- Rode este arquivo depois do 001_initial.sql no SQL Editor do Supabase
--- (ou via `supabase db push`). Recomenda-se testar antes em um branch/projeto
--- de homologação, pois este arquivo altera políticas de RLS existentes.
+-- Resultado: o banco fica só com o que a aplicação usa. Nenhuma dessas
+-- tabelas/colunas antigas é referenciada em nenhuma consulta do código, por
+-- isso é seguro apagá-las.
 
 -- ============================================================
--- 1) Colunas novas
+-- 0) Reverter mudanças manuais desnecessárias
+-- ============================================================
+drop table if exists public.expense_refunds cascade;
+drop table if exists public.user_permissions cascade;
+drop type if exists public.refund_status cascade;
+
+-- ============================================================
+-- 1) Colunas novas usadas pela aplicação
 -- ============================================================
 alter table public.profiles
   add column if not exists permissions jsonb not null default '{}'::jsonb;
@@ -148,77 +154,97 @@ alter table public.tasks enable row level security;
 alter table public.task_assignees enable row level security;
 alter table public.shopping_items enable row level security;
 
+drop policy if exists household_settings_read on public.household_settings;
 create policy household_settings_read on public.household_settings for select to authenticated
 using (household_id = public.current_household_id());
+drop policy if exists household_settings_admin_all on public.household_settings;
 create policy household_settings_admin_all on public.household_settings for all to authenticated
 using (public.is_house_admin(household_id)) with check (public.is_house_admin(household_id));
 
+drop policy if exists reminder_log_read on public.expense_reminder_log;
 create policy reminder_log_read on public.expense_reminder_log for select to authenticated
 using (exists (
   select 1 from public.expense_shares s
   join public.expenses e on e.id = s.expense_id
   where s.id = expense_share_id and e.household_id = public.current_household_id()
 ));
+drop policy if exists reminder_log_service_all on public.expense_reminder_log;
 create policy reminder_log_service_all on public.expense_reminder_log for all to service_role
 using (true) with check (true);
 
+drop policy if exists tasks_read on public.tasks;
 create policy tasks_read on public.tasks for select to authenticated
 using (household_id = public.current_household_id());
+drop policy if exists tasks_admin_all on public.tasks;
 create policy tasks_admin_all on public.tasks for all to authenticated
 using (public.is_house_admin(household_id)) with check (public.is_house_admin(household_id));
+drop policy if exists tasks_permission_write on public.tasks;
 create policy tasks_permission_write on public.tasks for insert to authenticated
 with check (household_id = public.current_household_id() and public.has_permission('manage_tasks'));
+drop policy if exists tasks_permission_update on public.tasks;
 create policy tasks_permission_update on public.tasks for update to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_tasks'))
 with check (household_id = public.current_household_id() and public.has_permission('manage_tasks'));
+drop policy if exists tasks_permission_delete on public.tasks;
 create policy tasks_permission_delete on public.tasks for delete to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_tasks'));
 
+drop policy if exists task_assignees_read on public.task_assignees;
 create policy task_assignees_read on public.task_assignees for select to authenticated
 using (exists (select 1 from public.tasks t where t.id = task_id and t.household_id = public.current_household_id()));
+drop policy if exists task_assignees_admin_all on public.task_assignees;
 create policy task_assignees_admin_all on public.task_assignees for all to authenticated
 using (exists (select 1 from public.tasks t where t.id = task_id and public.is_house_admin(t.household_id)))
 with check (exists (select 1 from public.tasks t where t.id = task_id and public.is_house_admin(t.household_id)));
+drop policy if exists task_assignees_permission_write on public.task_assignees;
 create policy task_assignees_permission_write on public.task_assignees for insert to authenticated
 with check (exists (select 1 from public.tasks t where t.id = task_id and t.household_id = public.current_household_id() and public.has_permission('manage_tasks')));
+drop policy if exists task_assignees_permission_update on public.task_assignees;
 create policy task_assignees_permission_update on public.task_assignees for update to authenticated
 using (exists (select 1 from public.tasks t where t.id = task_id and t.household_id = public.current_household_id() and public.has_permission('manage_tasks')))
 with check (exists (select 1 from public.tasks t where t.id = task_id and t.household_id = public.current_household_id() and public.has_permission('manage_tasks')));
+drop policy if exists task_assignees_self_update on public.task_assignees;
 -- qualquer morador pode marcar a própria atribuição como concluída
 create policy task_assignees_self_update on public.task_assignees for update to authenticated
 using (member_id = (select member_id from public.profiles where id = auth.uid()))
 with check (member_id = (select member_id from public.profiles where id = auth.uid()));
 
+drop policy if exists shopping_read on public.shopping_items;
 create policy shopping_read on public.shopping_items for select to authenticated
 using (household_id = public.current_household_id());
+drop policy if exists shopping_admin_all on public.shopping_items;
 create policy shopping_admin_all on public.shopping_items for all to authenticated
 using (public.is_house_admin(household_id)) with check (public.is_house_admin(household_id));
+drop policy if exists shopping_permission_write on public.shopping_items;
 create policy shopping_permission_write on public.shopping_items for insert to authenticated
 with check (household_id = public.current_household_id() and public.has_permission('manage_shopping'));
+drop policy if exists shopping_permission_update on public.shopping_items;
 create policy shopping_permission_update on public.shopping_items for update to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_shopping'))
 with check (household_id = public.current_household_id() and public.has_permission('manage_shopping'));
+drop policy if exists shopping_permission_delete on public.shopping_items;
 create policy shopping_permission_delete on public.shopping_items for delete to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_shopping'));
 
 -- ============================================================
 -- 7) Ajustes de RLS existentes para respeitar permissões granulares
 -- ============================================================
--- Despesas: além do admin, quem tiver 'manage_expenses' pode criar/editar.
+drop policy if exists expenses_permission_write on public.expenses;
 create policy expenses_permission_write on public.expenses for insert to authenticated
 with check (household_id = public.current_household_id() and public.has_permission('manage_expenses'));
+drop policy if exists expenses_permission_update on public.expenses;
 create policy expenses_permission_update on public.expenses for update to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_expenses'))
 with check (household_id = public.current_household_id() and public.has_permission('manage_expenses'));
 
--- Parcelas: quem tiver 'manage_expenses' pode criar/editar linhas de rateio,
--- e quem tiver 'mark_expenses_paid' pode atualizar status de pagamento/reembolso.
+drop policy if exists shares_permission_write on public.expense_shares;
 create policy shares_permission_write on public.expense_shares for insert to authenticated
 with check (exists (
   select 1 from public.expenses e
   where e.id = expense_id and e.household_id = public.current_household_id()
     and public.has_permission('manage_expenses')
 ));
+drop policy if exists shares_permission_update on public.expense_shares;
 create policy shares_permission_update on public.expense_shares for update to authenticated
 using (exists (
   select 1 from public.expenses e
@@ -231,23 +257,26 @@ with check (exists (
     and (public.has_permission('manage_expenses') or public.has_permission('mark_expenses_paid'))
 ));
 
--- Saldo do Mercado Pago: a leitura passa a depender de 'view_wallet_balance'.
 drop policy if exists wallet_read on public.wallet_snapshots;
+drop policy if exists wallet_read_permission on public.wallet_snapshots;
 create policy wallet_read_permission on public.wallet_snapshots for select to authenticated
 using (household_id = public.current_household_id() and public.has_permission('view_wallet_balance'));
 
--- Casa em dia: quem tiver 'manage_chores' pode criar tarefas e check-ins.
+drop policy if exists chores_permission_write on public.chores;
 create policy chores_permission_write on public.chores for insert to authenticated
 with check (household_id = public.current_household_id() and public.has_permission('manage_chores'));
+drop policy if exists chores_permission_update on public.chores;
 create policy chores_permission_update on public.chores for update to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_chores'))
 with check (household_id = public.current_household_id() and public.has_permission('manage_chores'));
+drop policy if exists chore_assignments_permission_write on public.chore_assignments;
 create policy chore_assignments_permission_write on public.chore_assignments for insert to authenticated
 with check (exists (select 1 from public.chores c where c.id = chore_id and c.household_id = public.current_household_id() and public.has_permission('manage_chores')));
+drop policy if exists chore_logs_permission_write on public.chore_logs;
 create policy chore_logs_permission_write on public.chore_logs for insert to authenticated
 with check (exists (select 1 from public.chores c where c.id = chore_id and c.household_id = public.current_household_id() and public.has_permission('manage_chores')));
 
--- Moradores: e-mail/PIX podem ser editados por quem tiver 'manage_members'.
+drop policy if exists members_permission_update on public.household_members;
 create policy members_permission_update on public.household_members for update to authenticated
 using (household_id = public.current_household_id() and public.has_permission('manage_members'))
 with check (household_id = public.current_household_id() and public.has_permission('manage_members'));

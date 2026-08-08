@@ -61,8 +61,9 @@ export async function syncMercadoPago() {
     } else if (result.reportsFound === 0) {
       message =
         "Nenhum relatório encontrado ainda. Uma nova geração foi solicitada; isso pode levar algumas horas na primeira vez.";
-    } else if (result.latestReportStatus && result.latestReportStatus !== "processed") {
-      message = `Já existe um relatório sendo processado pelo Mercado Pago (status: ${result.latestReportStatus}). Aguarde e sincronize novamente em algumas horas.`;
+    } else if (!result.latestReportReady) {
+      message =
+        "O relatório mais recente ainda está sendo processado pelo Mercado Pago (ainda sem arquivo disponível). Aguarde e sincronize novamente em algumas horas.";
     } else {
       message = "Nenhum relatório novo encontrado desde a última sincronização.";
     }
@@ -107,4 +108,14 @@ export async function updateReminderSettings(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
   redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Preferências de lembrete salvas.")}`);
+}
+
+export async function sendRemindersNow(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes");
+  const { profile, supabase } = await requireAdmin();
+  const { runExpenseReminders } = await import("@/lib/reminders");
+  const result = await runExpenseReminders(supabase, profile.household_id!);
+  revalidatePath(pathOf(returnTo));
+  const kind = result.ok ? "success" : "error";
+  redirect(`${pathOf(returnTo)}?${kind}=${encodeURIComponent(`Teste de lembretes: ${result.message}`)}`);
 }

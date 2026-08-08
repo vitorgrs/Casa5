@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CartIcon, ChecklistIcon, PlusIcon } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { currency } from "@/lib/format";
 import {
@@ -130,9 +131,10 @@ export default async function OrganizacaoPage({
                 </p>
               </div>
               <div className="form-actions">
-                <button className="button primary" type="submit">
-                  Criar tarefa
-                </button>
+                <SubmitButton pendingLabel="Criando...">Criar tarefa</SubmitButton>
+                <Link className="button ghost" href={baseRoute}>
+                  Cancelar
+                </Link>
               </div>
             </form>
           </div>
@@ -236,9 +238,9 @@ export default async function OrganizacaoPage({
                 <input name="note" placeholder="Opcional" />
               </label>
               <div className="form-actions span-3">
-                <button className="button secondary" type="submit">
+                <SubmitButton className="button secondary" pendingLabel="Adicionando...">
                   <PlusIcon /> Adicionar à lista
-                </button>
+                </SubmitButton>
               </div>
             </form>
           </div>
@@ -305,9 +307,10 @@ export default async function OrganizacaoPage({
                 <input name="unit_price" inputMode="decimal" required placeholder="0,00" />
               </label>
               <div className="form-actions">
-                <button className="button primary" type="submit">
-                  Salvar compra
-                </button>
+                <SubmitButton pendingLabel="Salvando...">Salvar compra</SubmitButton>
+                <Link className="button ghost" href={baseRoute}>
+                  Cancelar
+                </Link>
               </div>
             </form>
           </div>

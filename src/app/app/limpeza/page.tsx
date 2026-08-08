@@ -1,29 +1,13 @@
 import Link from "next/link";
 import {
-  CheckIcon,
   FireIcon,
   PlusIcon,
   SparkIcon,
   TrophyIcon,
 } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
-import { createChore, checkInChore, deleteChore } from "./actions";
-
-const weekdays = [
-  "domingo",
-  "segunda",
-  "terça",
-  "quarta",
-  "quinta",
-  "sexta",
-  "sábado",
-];
-const frequencies: Record<string, string> = {
-  daily: "Diária",
-  weekly: "Semanal",
-  monthly: "Mensal",
-  one_time: "Avulsa",
-};
+import { createTask, deleteTask } from "../organizacao/actions";
 
 function startOfWeek() {
   const date = new Date();
@@ -46,21 +30,53 @@ function calculateStreak(dates: string[]) {
   return streak;
 }
 
+function validMonth(value?: string) {
+  if (value && /^\d{4}-\d{2}$/.test(value)) return value;
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function shiftMonth(month: string, delta: number) {
+  const date = new Date(`${month}-01T00:00:00`);
+  date.setMonth(date.getMonth() + delta);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+const weekdayShort = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const monthNames = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
 export default async function ChoresPage({
   searchParams,
 }: {
-  searchParams: Promise<{ novo?: string }>;
+  searchParams: Promise<{ month?: string; day?: string; nova?: string }>;
 }) {
   const params = await searchParams;
-  const baseRoute = "/app/limpeza";
+  const month = validMonth(params.month);
+  const [year, monthNum] = month.split("-").map(Number);
+  const baseRoute = `/app/limpeza?month=${month}`;
   const { profile, supabase } = await requireActiveProfile();
-  const canManageChores = can(profile, "manage_chores");
+  const canManageTasks = can(profile, "manage_tasks");
   const weekStart = startOfWeek();
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const [{ data: members }, { data: chores }, { data: logs }] =
+  const firstOfMonth = new Date(year, monthNum - 1, 1);
+  const firstWeekday = firstOfMonth.getDay();
+  const daysInMonth = new Date(year, monthNum, 0).getDate();
+  const monthStartIso = `${month}-01`;
+  const monthEndIso = `${year}-${pad(monthNum)}-${pad(daysInMonth)}`;
+  const selectedDay = params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : null;
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const [{ data: members }, { data: logs }, { data: calendarTasks }] =
     await Promise.all([
       supabase
         .from("household_members")
@@ -69,20 +85,22 @@ export default async function ChoresPage({
         .eq("active", true)
         .order("display_order"),
       supabase
-        .from("chores")
-        .select(
-          "id,title,description,points,frequency,weekday,due_time,active,chore_assignments(member_id,rotation_order,member:household_members(id,name,initials,color_key))",
-        )
-        .eq("household_id", profile.household_id)
-        .eq("active", true)
-        .order("created_at"),
-      supabase
         .from("chore_logs")
         .select(
           "id,chore_id,member_id,reference_date,completed_at,points_awarded,note,chore:chores(title),member:household_members(name,initials,color_key)",
         )
         .gte("reference_date", monthStart.toISOString().slice(0, 10))
         .order("completed_at", { ascending: false }),
+      supabase
+        .from("tasks")
+        .select(
+          "id,title,description,due_date,task_assignees(id,done,member:household_members(id,name,initials,color_key))",
+        )
+        .eq("household_id", profile.household_id)
+        .eq("scope", "casa")
+        .gte("due_date", monthStartIso)
+        .lte("due_date", monthEndIso)
+        .order("due_date"),
     ]);
 
   const weekLogs = (logs ?? []).filter(
@@ -100,26 +118,34 @@ export default async function ChoresPage({
     .sort((a, b) => b.points - a.points);
   const streak = calculateStreak((logs ?? []).map((log) => log.reference_date));
 
+  const tasksByDay = new Map<string, typeof calendarTasks>();
+  for (const task of calendarTasks ?? []) {
+    if (!task.due_date) continue;
+    if (!tasksByDay.has(task.due_date)) tasksByDay.set(task.due_date, []);
+    tasksByDay.get(task.due_date)!.push(task);
+  }
+  const cells: (number | null)[] = [
+    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const selectedTasks = selectedDay ? (tasksByDay.get(selectedDay) ?? []) : [];
+
   return (
     <>
       <div className="page-head">
         <div>
           <span className="eyebrow">Casa em dia</span>
-          <h1>Rotina gamificada</h1>
+          <h1>Rotina da casa</h1>
           <p>
-            Registre tarefas, acumule pontos e mantenha uma sequência de cuidado
-            com a casa.
+            Clique em um dia do calendário para ver ou registrar as tarefas
+            feitas naquela data.
           </p>
         </div>
         <div className="page-actions">
-          <Link className="button ghost" href="/app/limpeza/calendario">
-            Ver calendário
+          <Link className="button ghost" href="/app/limpeza/rotina">
+            Rodízio fixo
           </Link>
-          {canManageChores && (
-            <Link className="button primary" href="/app/limpeza?novo=1">
-              <PlusIcon /> Nova tarefa
-            </Link>
-          )}
         </div>
       </div>
 
@@ -153,233 +179,48 @@ export default async function ChoresPage({
         </div>
         <div className="card metric-card">
           <div className="metric-top">
-            <span>Tarefas ativas</span>
+            <span>Tarefas do mês</span>
             <span className="metric-icon">
               <SparkIcon />
             </span>
           </div>
-          <strong className="metric-value">{chores?.length ?? 0}</strong>
-          <span className="metric-foot">com rodízio entre os moradores</span>
+          <strong className="metric-value">{calendarTasks?.length ?? 0}</strong>
+          <span className="metric-foot">registradas no calendário</span>
         </div>
       </div>
 
-      {params.novo === "1" && canManageChores && (
-        <section className="card pad" style={{ marginTop: 16 }}>
-          <div
-            className="card-head"
-            style={{ padding: 0, paddingBottom: 16, marginBottom: 18 }}
-          >
-            <h2>Criar tarefa da casa</h2>
-            <Link href={baseRoute} className="button ghost small">
-              Fechar
-            </Link>
-          </div>
-          <form action={createChore}>
-            <input type="hidden" name="redirect_to" value={baseRoute} />
-            <div className="form-grid cols-3">
-              <label className="field span-2">
-                Nome da tarefa
-                <input
-                  name="title"
-                  required
-                  placeholder="Ex.: Limpar a geladeira"
-                />
-              </label>
-              <label className="field">
-                Pontos
-                <input
-                  name="points"
-                  type="number"
-                  min="1"
-                  defaultValue="15"
-                  required
-                />
-              </label>
-              <label className="field">
-                Frequência
-                <select name="frequency" defaultValue="weekly">
-                  <option value="daily">Diária</option>
-                  <option value="weekly">Semanal</option>
-                  <option value="monthly">Mensal</option>
-                  <option value="one_time">Avulsa</option>
-                </select>
-              </label>
-              <label className="field">
-                Dia da semana
-                <select name="weekday" defaultValue="">
-                  <option value="">Não definido</option>
-                  {weekdays.map((day, index) => (
-                    <option value={index} key={day}>
-                      {day}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Horário sugerido
-                <input name="due_time" type="time" />
-              </label>
-              <label className="field span-3">
-                Descrição
-                <textarea
-                  name="description"
-                  placeholder="O que deve ser feito para a tarefa contar como concluída?"
-                />
-              </label>
-            </div>
-            <div className="form-section">
-              <h4>Participantes do rodízio</h4>
-              <div className="member-check-grid">
-                {(members ?? []).map((member) => (
-                  <label className="member-check" key={member.id}>
-                    <input
-                      name="members"
-                      type="checkbox"
-                      value={member.id}
-                      defaultChecked
-                    />
-                    <span>{member.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="form-actions">
-              <button className="button primary" type="submit">
-                Criar tarefa
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
-
       <div className="dashboard-grid">
         <section className="card pad">
-          <div
-            className="card-head"
-            style={{ padding: 0, paddingBottom: 15, marginBottom: 15 }}
-          >
-            <div>
-              <h2>Tarefas da casa</h2>
-              <span className="muted-text" style={{ fontSize: 10 }}>
-                Rodízio de responsáveis; registre manualmente quem concluiu.
-              </span>
-            </div>
+          <div className="month-nav" style={{ justifyContent: "center", marginBottom: 16 }}>
+            <Link href={`/app/limpeza?month=${shiftMonth(month, -1)}`}>‹</Link>
+            <strong>{monthNames[monthNum - 1]} de {year}</strong>
+            <Link href={`/app/limpeza?month=${shiftMonth(month, 1)}`}>›</Link>
           </div>
-          <div className="chore-grid">
-            {(chores ?? []).map((chore) => {
-              const assignments = [...(chore.chore_assignments ?? [])].sort(
-                (a, b) => a.rotation_order - b.rotation_order,
-              );
+          <div className="calendar-grid">
+            {weekdayShort.map((w) => (
+              <div key={w} className="calendar-weekday">{w}</div>
+            ))}
+            {cells.map((day, index) => {
+              if (day === null) return <div key={`empty-${index}`} className="calendar-cell empty" />;
+              const iso = `${month}-${pad(day)}`;
+              const dayTasks = tasksByDay.get(iso) ?? [];
+              const isSelected = iso === selectedDay;
+              const isToday = iso === todayIso;
               return (
-                <article className="chore-card" key={chore.id}>
-                  <div className="chore-card-head">
-                    <div>
-                      <h3>{chore.title}</h3>
-                      <p>{chore.description ?? "Tarefa recorrente da casa."}</p>
-                    </div>
-                    <span className="points-chip">+{chore.points} pts</span>
-                  </div>
-                  <div className="assignee-list">
-                    {assignments.map((assignment) => {
-                      const member = Array.isArray(assignment.member)
-                        ? assignment.member[0]
-                        : assignment.member;
-                      return (
-                        <div
-                          className={`avatar avatar-${member?.color_key ?? "violet"}`}
-                          title={member?.name}
-                          key={assignment.member_id}
-                        >
-                          {member?.initials ?? "?"}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="chore-foot">
-                    <span>
-                      {frequencies[chore.frequency]}
-                      {chore.weekday !== null
-                        ? ` • ${weekdays[chore.weekday]}`
-                        : ""}
+                <Link
+                  key={iso}
+                  href={`/app/limpeza?month=${month}&day=${iso}`}
+                  className={`calendar-cell ${isSelected ? "selected" : ""} ${isToday ? "today" : ""}`}
+                >
+                  <span className="calendar-day-number">{day}</span>
+                  {dayTasks.length > 0 && (
+                    <span className="calendar-dot-row">
+                      {dayTasks.slice(0, 3).map((t) => (
+                        <span key={t.id} className="calendar-dot" />
+                      ))}
                     </span>
-                  </div>
-                  {canManageChores && (
-                    <details
-                      className="details-editor"
-                      style={{ margin: "14px -16px -16px" }}
-                    >
-                      <summary>
-                        <CheckIcon
-                          style={{ verticalAlign: "middle", marginRight: 6 }}
-                        />{" "}
-                        Registrar conclusão
-                      </summary>
-                      <div className="editor-body">
-                        <form
-                          action={checkInChore}
-                          className="stack-form"
-                          style={{ marginTop: 0 }}
-                        >
-                          <input
-                            type="hidden"
-                            name="chore_id"
-                            value={chore.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="redirect_to"
-                            value={baseRoute}
-                          />
-                          <label>
-                            Morador
-                            <select
-                              name="member_id"
-                              defaultValue={members?.[0]?.id}
-                            >
-                              {(members ?? []).map((member) => (
-                                <option value={member.id} key={member.id}>
-                                  {member.name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Data
-                            <input
-                              name="reference_date"
-                              type="date"
-                              defaultValue={new Date()
-                                .toISOString()
-                                .slice(0, 10)}
-                            />
-                          </label>
-                          <label>
-                            Observação
-                            <input name="note" placeholder="Opcional" />
-                          </label>
-                          <button className="button primary" type="submit">
-                            Confirmar check-in
-                          </button>
-                        </form>
-                        <form action={deleteChore} style={{ marginTop: 10 }}>
-                          <input
-                            type="hidden"
-                            name="chore_id"
-                            value={chore.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="redirect_to"
-                            value={baseRoute}
-                          />
-                          <button className="button danger small" type="submit">
-                            Excluir tarefa
-                          </button>
-                        </form>
-                      </div>
-                    </details>
                   )}
-                </article>
+                </Link>
               );
             })}
           </div>
@@ -425,15 +266,13 @@ export default async function ChoresPage({
           <div>
             <h2>Atividades do mês</h2>
             <span className="muted-text" style={{ fontSize: 10 }}>
-              Histórico de conclusões e pontos.
+              Histórico de conclusões e pontos do rodízio fixo.
             </span>
           </div>
         </div>
         <div className="list">
           {(logs ?? []).slice(0, 20).map((log) => {
-            const member = Array.isArray(log.member)
-              ? log.member[0]
-              : log.member;
+            const member = Array.isArray(log.member) ? log.member[0] : log.member;
             const chore = Array.isArray(log.chore) ? log.chore[0] : log.chore;
             return (
               <div className="list-row" key={log.id}>
@@ -450,9 +289,7 @@ export default async function ChoresPage({
                 </div>
                 <div className="item-value">
                   <strong>
-                    {new Date(
-                      `${log.reference_date}T00:00:00`,
-                    ).toLocaleDateString("pt-BR")}
+                    {new Date(`${log.reference_date}T00:00:00`).toLocaleDateString("pt-BR")}
                   </strong>
                   <small>data</small>
                 </div>
@@ -465,6 +302,129 @@ export default async function ChoresPage({
           )}
         </div>
       </section>
+
+      {selectedDay && (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="day-modal-title"
+          >
+            <div className="card-head" style={{ padding: 0, paddingBottom: 14 }}>
+              <div>
+                <h3 id="day-modal-title" style={{ margin: 0 }}>
+                  {new Date(`${selectedDay}T00:00:00`).toLocaleDateString("pt-BR", {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "long",
+                  })}
+                </h3>
+                <span className="muted-text" style={{ fontSize: 11 }}>
+                  {selectedTasks.length} tarefa(s) registrada(s)
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {canManageTasks && (
+                  <Link
+                    className="button primary small"
+                    href={`/app/limpeza?month=${month}&day=${selectedDay}&nova=1`}
+                  >
+                    <PlusIcon /> Nova tarefa
+                  </Link>
+                )}
+                <Link className="button ghost small" href={baseRoute}>
+                  Fechar
+                </Link>
+              </div>
+            </div>
+
+            {params.nova === "1" && canManageTasks && (
+              <form action={createTask} className="stack-form" style={{ marginBottom: 16 }}>
+                <input type="hidden" name="scope" value="casa" />
+                <input type="hidden" name="due_date" value={selectedDay} />
+                <input
+                  type="hidden"
+                  name="redirect_to"
+                  value={`/app/limpeza?month=${month}&day=${selectedDay}`}
+                />
+                <label>
+                  Título da tarefa
+                  <input name="title" required placeholder="Ex.: Lavar a louça" />
+                </label>
+                <label>
+                  Descrição (opcional)
+                  <input name="description" placeholder="Detalhes" />
+                </label>
+                <div className="form-section" style={{ padding: 0 }}>
+                  <h4>Quem fez (uma ou mais pessoas)?</h4>
+                  <div className="member-check-grid">
+                    {(members ?? []).map((member) => (
+                      <label className="member-check" key={member.id}>
+                        <input type="checkbox" name="member_ids" value={member.id} />
+                        <span>{member.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <SubmitButton pendingLabel="Registrando...">Registrar tarefa</SubmitButton>
+                  <Link
+                    className="button ghost"
+                    href={`/app/limpeza?month=${month}&day=${selectedDay}`}
+                  >
+                    Cancelar
+                  </Link>
+                </div>
+              </form>
+            )}
+
+            <div className="list">
+              {selectedTasks.length === 0 && (
+                <div className="empty">Nenhuma tarefa registrada neste dia.</div>
+              )}
+              {selectedTasks.map((task) => (
+                <div className="list-row" key={task.id} style={{ flexWrap: "wrap" }}>
+                  <div className="item-title">
+                    <strong>{task.title}</strong>
+                    <small>{task.description ?? "Sem descrição."}</small>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {(task.task_assignees ?? []).length === 0 && (
+                      <span className="muted-text" style={{ fontSize: 12 }}>Sem responsável definido</span>
+                    )}
+                    {(task.task_assignees ?? []).map((a) => {
+                      const member = Array.isArray(a.member) ? a.member[0] : a.member;
+                      return (
+                        <div
+                          key={a.id}
+                          className={`avatar avatar-${member?.color_key ?? "violet"}`}
+                          title={member?.name}
+                        >
+                          {member?.initials ?? "?"}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {canManageTasks && (
+                    <form action={deleteTask}>
+                      <input type="hidden" name="task_id" value={task.id} />
+                      <input
+                        type="hidden"
+                        name="redirect_to"
+                        value={`/app/limpeza?month=${month}&day=${selectedDay}`}
+                      />
+                      <SubmitButton className="button danger small" pendingLabel="Excluindo...">
+                        Excluir
+                      </SubmitButton>
+                    </form>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

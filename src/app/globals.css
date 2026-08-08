@@ -268,10 +268,26 @@ textarea {
   justify-content: center;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.2;
+  font-size: 13px;
+  font-family: inherit;
   transition:
     transform 0.16s ease,
     background 0.16s ease,
-    border-color 0.16s ease;
+    border-color 0.16s ease,
+    opacity 0.16s ease;
+}
+.button svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  transform: none !important;
 }
 .button:hover {
   transform: translateY(-1px);
@@ -1733,5 +1749,90 @@ textarea {
   }
   .wallet-balance {
     font-size: 26px !important;
+  }
+}
+
+/* Spinner usado dentro de botões com estado pendente (SubmitButton) */
+.spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Rodapé de arquivos anexados (comprovante/boleto) */
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.attachment-row a {
+  color: var(--cyan);
+}
+
+.attachment-upload-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.file-input-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  max-width: 220px;
+}
+.file-input-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-input-label input[type="file"] {
+  display: none;
+}
+
+.modal-card-lg {
+  width: min(720px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  border-color: var(--line-strong);
+  background: linear-gradient(
+    145deg,
+    rgba(20, 26, 41, 0.98),
+    rgba(12, 16, 27, 0.98)
+  );
+  text-align: left;
+  align-items: stretch;
+}
+.modal-card-lg .card-head {
+  align-items: flex-start;
+}
+@media (max-width: 640px) {
+  .modal-card-lg {
+    width: calc(100vw - 24px);
+    max-height: 92vh;
+    padding: 18px;
   }
 }

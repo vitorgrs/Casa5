@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
+import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency } from "@/lib/format";
-import { addManualBalance, syncMercadoPago, updateReminderSettings } from "./actions";
+import { addManualBalance, sendRemindersNow, syncMercadoPago, updateReminderSettings } from "./actions";
 
 export default async function SettingsPage({
   searchParams,
@@ -28,6 +29,15 @@ export default async function SettingsPage({
     .select("reminders_enabled,reminder_days_before")
     .eq("household_id", profile.household_id)
     .maybeSingle();
+  const { data: lastRun } = await supabase
+    .from("system_events")
+    .select("created_at,detail,metadata")
+    .eq("household_id", profile.household_id)
+    .eq("event_type", "daily_automation")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const resendConfigured = Boolean(process.env.RESEND_API_KEY) && Boolean(process.env.RESEND_FROM);
 
   return (
     <>
@@ -75,13 +85,13 @@ export default async function SettingsPage({
             </div>
             {profile.role === "admin" && (
               <form action={syncMercadoPago} style={{ marginTop: 22 }}>
-                <button
+                <SubmitButton
                   className="button secondary"
-                  type="submit"
                   disabled={!mpConfigured}
+                  pendingLabel="Sincronizando..."
                 >
                   <WalletIcon /> Sincronizar Mercado Pago
-                </button>
+                </SubmitButton>
               </form>
             )}
           </section>
@@ -190,9 +200,9 @@ export default async function SettingsPage({
                     placeholder="0,00"
                   />
                 </label>
-                <button className="button secondary" type="submit">
+                <SubmitButton className="button secondary" pendingLabel="Registrando...">
                   Registrar saldo
-                </button>
+                </SubmitButton>
               </form>
             </section>
           )}
@@ -200,12 +210,27 @@ export default async function SettingsPage({
           <section className="card pad">
             <h3 style={{ marginTop: 0 }}>Automação diária</h3>
             <p className="note">
-              A Vercel executa uma rotina gratuita uma vez por dia, às 08:00 no
-              horário de Fortaleza/Rio. Ela marca pagamentos atrasados, prepara
-              despesas recorrentes do próximo mês, tenta importar o relatório
-              mais recente do Mercado Pago e envia lembretes de vencimento por
-              e-mail.
+              A Vercel executa uma rotina gratuita uma vez por dia (agendada
+              para 08:00 no horário de Fortaleza/Rio). No plano gratuito da
+              Vercel, esse horário pode variar um pouco e o primeiro disparo
+              só acontece na próxima janela depois do deploy — então é normal
+              não ter rodado ainda se você acabou de configurar.
             </p>
+            {lastRun ? (
+              <div className="message info">
+                Última execução: {new Date(lastRun.created_at).toLocaleString("pt-BR")}
+                <br />
+                Lembretes: {(lastRun.metadata as { reminders?: string })?.reminders ?? "—"}
+                <br />
+                Mercado Pago: {(lastRun.metadata as { mercadoPago?: string })?.mercadoPago ?? "—"}
+              </div>
+            ) : (
+              <div className="message info">
+                Ainda não há registro de nenhuma execução automática para esta
+                casa. Confira em Vercel {"->"} seu projeto {"->"} aba Cron Jobs
+                se o job está agendado e se já rodou.
+              </div>
+            )}
           </section>
 
           {profile.role === "admin" && (
@@ -213,11 +238,18 @@ export default async function SettingsPage({
               <h3 style={{ marginTop: 0 }}>Lembretes de vencimento por e-mail</h3>
               <p className="note">
                 Usa a API do Resend (plano gratuito: 3.000 e-mails/mês). É
-                necessário verificar um domínio de envio no Resend e definir
-                <code> RESEND_API_KEY</code> e <code>RESEND_FROM</code> nas
-                variáveis de ambiente da Vercel. Sem essas variáveis, os
-                lembretes ficam desativados automaticamente.
+                necessário verificar um domínio de envio no Resend (Domains →
+                Add Domain) e definir <code>RESEND_API_KEY</code> e{" "}
+                <code>RESEND_FROM</code> nas variáveis de ambiente da Vercel.
+                Sem essas variáveis, os lembretes ficam desativados
+                automaticamente. Se o domínio do <code>RESEND_FROM</code> não
+                estiver verificado no Resend, os envios falham silenciosamente
+                — use o botão de teste abaixo para ver o erro real.
               </p>
+              <div className="message info">
+                Status do Resend:{" "}
+                <strong>{resendConfigured ? "variáveis configuradas" : "faltam variáveis"}</strong>
+              </div>
               <form action={updateReminderSettings} className="stack-form">
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
                 <label style={{ flexDirection: "row", alignItems: "center", gap: 10, display: "flex" }}>
@@ -238,9 +270,15 @@ export default async function SettingsPage({
                     defaultValue={reminderSettings?.reminder_days_before ?? 3}
                   />
                 </label>
-                <button className="button secondary" type="submit">
+                <SubmitButton className="button secondary" pendingLabel="Salvando...">
                   Salvar preferências
-                </button>
+                </SubmitButton>
+              </form>
+              <form action={sendRemindersNow} style={{ marginTop: 12 }}>
+                <input type="hidden" name="redirect_to" value="/app/configuracoes" />
+                <SubmitButton className="button ghost" disabled={!resendConfigured} pendingLabel="Enviando...">
+                  Testar / enviar lembretes agora
+                </SubmitButton>
               </form>
             </section>
           )}

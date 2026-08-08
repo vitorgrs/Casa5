@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin, requirePermission } from "@/lib/auth";
+import { can, requireActiveProfile, requireAdmin, requirePermission } from "@/lib/auth";
+import { deleteFromReceiptBucket, uploadToReceiptBucket } from "@/lib/storage";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -152,9 +153,7 @@ export async function updateExpense(formData: FormData) {
     [
       supabase
         .from("expense_shares")
-        .select(
-          "member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at",
-        )
+        .select("member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at")
         .eq("expense_id", expenseId),
       supabase
         .from("expenses")
@@ -217,14 +216,11 @@ export async function updateExpense(formData: FormData) {
           payment_method: old?.payment_method ?? null,
           note: old?.note ?? null,
           reimbursement_status: hasReimbursement
-            ? old?.reimbursement_status &&
-              old.reimbursement_status !== "not_applicable"
-              ? old.reimbursement_status
-              : "pending"
+            ? (old?.reimbursement_status && old.reimbursement_status !== "not_applicable"
+                ? old.reimbursement_status
+                : "pending")
             : "not_applicable",
-          reimbursement_paid_at: hasReimbursement
-            ? (old?.reimbursement_paid_at ?? null)
-            : null,
+          reimbursement_paid_at: hasReimbursement ? (old?.reimbursement_paid_at ?? null) : null,
         };
       }),
     );
@@ -307,11 +303,136 @@ export async function setReimbursementStatus(formData: FormData) {
     .from("expense_shares")
     .update({
       reimbursement_status: status,
-      reimbursement_paid_at:
-        status === "paid" ? new Date().toISOString() : null,
+      reimbursement_paid_at: status === "paid" ? new Date().toISOString() : null,
     })
     .eq("id", shareId)
     .neq("reimbursement_status", "not_applicable");
+  if (error) throw new Error(error.message);
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
+}
+
+// ----------------------------------------------------------------------
+// Comprovantes de pagamento (por morador) e boleto (por despesa)
+// ----------------------------------------------------------------------
+
+export async function uploadShareReceipt(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
+  const { profile, supabase } = await requireActiveProfile();
+  const shareId = String(formData.get("share_id"));
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Selecione um arquivo (PDF ou foto) antes de enviar.");
+  }
+
+  const { data: share } = await supabase
+    .from("expense_shares")
+    .select("id,member_id,receipt_path,expense:expenses(household_id)")
+    .eq("id", shareId)
+    .single();
+  if (!share) throw new Error("Parcela não encontrada.");
+  const expense = Array.isArray(share.expense) ? share.expense[0] : share.expense;
+  if (!expense || expense.household_id !== profile.household_id) {
+    throw new Error("Parcela não pertence à sua casa.");
+  }
+
+  const isOwner = profile.member_id === share.member_id;
+  const canManage = isOwner || can(profile, "manage_expenses") || can(profile, "mark_expenses_paid");
+  if (!canManage) throw new Error("Você não pode anexar comprovante para outro morador.");
+
+  const uploaded = await uploadToReceiptBucket(
+    supabase,
+    profile.household_id!,
+    `shares/${shareId}`,
+    file,
+  );
+
+  if (share.receipt_path) await deleteFromReceiptBucket(supabase, share.receipt_path);
+
+  const { error } = await supabase
+    .from("expense_shares")
+    .update({
+      receipt_path: uploaded.path,
+      receipt_name: uploaded.name,
+      receipt_uploaded_by: profile.id,
+      receipt_uploaded_at: new Date().toISOString(),
+    })
+    .eq("id", shareId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(pathOf(returnTo));
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante enviado.")}`);
+}
+
+export async function deleteShareReceipt(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
+  const { supabase } = await requirePermission("manage_expenses");
+  const shareId = String(formData.get("share_id"));
+  const { data: share } = await supabase
+    .from("expense_shares")
+    .select("receipt_path")
+    .eq("id", shareId)
+    .single();
+  if (share?.receipt_path) await deleteFromReceiptBucket(supabase, share.receipt_path);
+  const { error } = await supabase
+    .from("expense_shares")
+    .update({ receipt_path: null, receipt_name: null, receipt_uploaded_by: null, receipt_uploaded_at: null })
+    .eq("id", shareId);
+  if (error) throw new Error(error.message);
+  revalidatePath(pathOf(returnTo));
+  redirect(returnTo);
+}
+
+export async function uploadExpenseBoleto(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
+  const { profile, supabase } = await requirePermission("manage_expenses");
+  const expenseId = String(formData.get("expense_id"));
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Selecione um arquivo (PDF ou foto) antes de enviar.");
+  }
+
+  const { data: expense } = await supabase
+    .from("expenses")
+    .select("id,household_id,boleto_path")
+    .eq("id", expenseId)
+    .single();
+  if (!expense || expense.household_id !== profile.household_id) {
+    throw new Error("Despesa não encontrada.");
+  }
+
+  const uploaded = await uploadToReceiptBucket(
+    supabase,
+    profile.household_id!,
+    `expenses/${expenseId}`,
+    file,
+  );
+  if (expense.boleto_path) await deleteFromReceiptBucket(supabase, expense.boleto_path);
+
+  const { error } = await supabase
+    .from("expenses")
+    .update({ boleto_path: uploaded.path, boleto_name: uploaded.name, boleto_uploaded_at: new Date().toISOString() })
+    .eq("id", expenseId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(pathOf(returnTo));
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Boleto anexado.")}`);
+}
+
+export async function deleteExpenseBoleto(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
+  const { supabase } = await requirePermission("manage_expenses");
+  const expenseId = String(formData.get("expense_id"));
+  const { data: expense } = await supabase
+    .from("expenses")
+    .select("boleto_path")
+    .eq("id", expenseId)
+    .single();
+  if (expense?.boleto_path) await deleteFromReceiptBucket(supabase, expense.boleto_path);
+  const { error } = await supabase
+    .from("expenses")
+    .update({ boleto_path: null, boleto_name: null, boleto_uploaded_at: null })
+    .eq("id", expenseId);
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
   redirect(returnTo);
