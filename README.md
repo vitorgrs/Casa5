@@ -417,3 +417,25 @@ No fluxo **Organização → Lista de compras → Lançar compra**:
    pagou, podendo enviar um comprovante em PDF ou foto.
 6. O pagador (ou quem gerencia compras) confere o arquivo em **Organização**
    e confirma o Pix.
+
+## Atualização: compra com vários itens e compensação de dívidas
+
+Depois da migração 005, rode também:
+
+```text
+supabase/migrations/006_multi_item_purchases_and_netting.sql
+```
+
+O lançamento da compra agora funciona em lote:
+
+- A lista pode ser pesquisada por nome, categoria ou observação.
+- Nome e quantidade planejada podem ser editados enquanto o item está aberto.
+- É possível selecionar vários itens, informar quantidade e valor unitário de
+  cada um e conferir o subtotal e o total da compra em tempo real.
+- Somente depois do total são escolhidos o pagador, o tipo da compra e os
+  participantes do rateio.
+
+Os débitos de compras também são compensados por dupla de moradores. Exemplo:
+se você deve R$ 50,00 ao Patrick e ele deve R$ 25,00 a você, a **Minha página**
+explica os dois valores e pede um Pix de apenas R$ 25,00. Um único comprovante
+quita as dívidas usadas nessa compensação depois da confirmação do recebedor.

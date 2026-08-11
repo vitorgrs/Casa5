@@ -5,7 +5,11 @@ import { CalendarIcon, ChecklistIcon, UsersIcon, WalletIcon } from "@/components
 import { requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
 import { signedReceiptUrl } from "@/lib/storage";
-import { uploadShoppingShareReceipt } from "@/app/app/organizacao/actions";
+import {
+  confirmShoppingNetPayment,
+  settleZeroShoppingBalance,
+  uploadShoppingNetReceipt,
+} from "@/app/app/organizacao/actions";
 
 export default async function MyPage({
   searchParams,
@@ -66,17 +70,17 @@ export default async function MyPage({
       .eq("member_id", memberId)
       .order("id"),
     supabase
-      .from("shopping_item_shares")
+      .from("shopping_purchase_shares")
       .select(
-        "id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,item:shopping_items(id,name,category,bought_at,paid_by_member_id,paid_by:household_members!shopping_items_paid_by_member_id_fkey(id,name,pix_key))",
+        "id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,purchase:shopping_purchases(id,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
       )
       .eq("member_id", memberId)
+      .eq("payment_status", "pending")
       .order("created_at", { ascending: false }),
     supabase
-      .from("shopping_items")
-      .select("id,shopping_item_shares(member_id,amount,payment_status)")
+      .from("shopping_purchases")
+      .select("id,shopping_purchase_shares(id,member_id,amount,payment_status,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name,pix_key))")
       .eq("paid_by_member_id", memberId)
-      .eq("status", "bought"),
   ]);
 
   const shareRows = (shares ?? []).filter((s) => s.expense);
@@ -90,29 +94,78 @@ export default async function MyPage({
   const sortedMonths = Array.from(grouped.keys()).sort().reverse();
 
   const unpaid = shareRows.filter((s) => !["paid", "waived"].includes(s.payment_status));
-  const myShoppingShares = await Promise.all(
-    (shoppingShares ?? [])
-      .filter((share) => {
-        const item = Array.isArray(share.item) ? share.item[0] : share.item;
-        return item && item.paid_by_member_id !== memberId;
-      })
-      .map(async (share) => ({
-        ...share,
-        receipt_url: await signedReceiptUrl(supabase, share.receipt_path),
-      })),
-  );
-  const unpaidShoppingShares = myShoppingShares.filter(
-    (share) => !["paid", "waived"].includes(share.payment_status),
+  type NetAccount = {
+    memberId: string;
+    memberName: string;
+    pixKey: string | null;
+    outgoingShares: Array<Record<string, any>>;
+    incomingShares: Array<Record<string, any>>;
+  };
+  const accountMap = new Map<string, NetAccount>();
+
+  for (const share of shoppingShares ?? []) {
+    const purchase = Array.isArray(share.purchase) ? share.purchase[0] : share.purchase;
+    const paidBy = Array.isArray(purchase?.paid_by) ? purchase?.paid_by[0] : purchase?.paid_by;
+    if (!purchase || !paidBy || purchase.paid_by_member_id === memberId) continue;
+    const account = accountMap.get(paidBy.id) ?? {
+      memberId: paidBy.id,
+      memberName: paidBy.name,
+      pixKey: paidBy.pix_key,
+      outgoingShares: [],
+      incomingShares: [],
+    };
+    account.outgoingShares.push(share);
+    accountMap.set(paidBy.id, account);
+  }
+
+  for (const purchase of shoppingPaidByMe ?? []) {
+    for (const share of purchase.shopping_purchase_shares ?? []) {
+      if (share.member_id === memberId || share.payment_status !== "pending") continue;
+      const member = Array.isArray(share.member) ? share.member[0] : share.member;
+      if (!member) continue;
+      const account = accountMap.get(member.id) ?? {
+        memberId: member.id,
+        memberName: member.name,
+        pixKey: member.pix_key,
+        outgoingShares: [],
+        incomingShares: [],
+      };
+      account.incomingShares.push(share);
+      accountMap.set(member.id, account);
+    }
+  }
+
+  const netShoppingAccounts = await Promise.all(
+    Array.from(accountMap.values()).map(async (account) => {
+      const grossOutgoing = account.outgoingShares.reduce(
+        (sum, share) => sum + asNumber(share.amount), 0,
+      );
+      const grossIncoming = account.incomingShares.reduce(
+        (sum, share) => sum + asNumber(share.amount), 0,
+      );
+      const net = Math.round((grossOutgoing - grossIncoming) * 100) / 100;
+      const receiptShare = account.outgoingShares.find((share) => share.receipt_path);
+      const incomingReceiptShare = account.incomingShares.find((share) => share.receipt_path);
+      const representativeShare = receiptShare ?? account.outgoingShares[0];
+      return {
+        ...account,
+        grossOutgoing,
+        grossIncoming,
+        net,
+        representativeShare,
+        receiptUrl: await signedReceiptUrl(supabase, receiptShare?.receipt_path ?? null),
+        incomingReceiptShare,
+        incomingReceiptUrl: await signedReceiptUrl(supabase, incomingReceiptShare?.receipt_path ?? null),
+      };
+    }),
   );
   const totalUnpaid =
     unpaid.reduce((sum, s) => sum + asNumber(s.amount), 0)
-    + unpaidShoppingShares.reduce((sum, share) => sum + asNumber(share.amount), 0);
-  const totalUnpaidCount = unpaid.length + unpaidShoppingShares.length;
+    + netShoppingAccounts.filter((account) => account.net > 0).reduce((sum, account) => sum + account.net, 0);
+  const totalUnpaidCount = unpaid.length + netShoppingAccounts.filter((account) => account.net > 0).length;
   const pendingReimbursements = (reimbursements ?? []).filter((r) => r.reimbursement_status === "pending");
-  const pendingShoppingReceivables = (shoppingPaidByMe ?? [])
-    .flatMap((item) => item.shopping_item_shares ?? [])
-    .filter((share) => share.member_id !== memberId && share.payment_status !== "paid");
-  const pendingReceivableCount = pendingReimbursements.length + pendingShoppingReceivables.length;
+  const pendingReceivableCount = pendingReimbursements.length
+    + netShoppingAccounts.filter((account) => account.net < 0).length;
 
   const openTasks = (myTasks ?? []).filter((t) => !t.done && t.task);
   const casaTasks = openTasks.filter((t) => {
@@ -167,67 +220,120 @@ export default async function MyPage({
         <section className="card">
           <div className="card-head">
             <div>
-              <h2>Compras que você precisa reembolsar</h2>
+              <h2>Acertos de compras entre moradores</h2>
               <span className="muted-text" style={{ fontSize: 10 }}>
-                Faça o Pix para quem pagou e envie o comprovante por aqui.
+                Dívidas recíprocas são compensadas antes de mostrar quem paga o Pix.
               </span>
             </div>
             <WalletIcon />
           </div>
           <div className="purchase-list">
-            {myShoppingShares.length === 0 && (
-              <div className="empty">Você não possui débitos de compras.</div>
+            {netShoppingAccounts.length === 0 && (
+              <div className="empty">Você não possui acertos de compras pendentes.</div>
             )}
-            {myShoppingShares.map((share) => {
-              const item = Array.isArray(share.item) ? share.item[0] : share.item;
-              const paidBy = Array.isArray(item?.paid_by) ? item?.paid_by[0] : item?.paid_by;
-              const hasReceipt = Boolean(share.receipt_path);
-              const isConfirmed = share.payment_status === "paid";
+            {netShoppingAccounts.map((account) => {
+              const hasReceipt = Boolean(account.representativeShare?.receipt_path);
+              const hasIncomingReceipt = Boolean(account.incomingReceiptShare?.receipt_path);
+              const netAmount = Math.abs(account.net);
               return (
-                <article className="purchase-card" key={share.id}>
+                <article className="purchase-card net-account-card" key={account.memberId}>
                   <div className="purchase-summary personal-purchase-summary">
                     <div className="item-title">
-                      <strong>{item?.name ?? "Compra"}</strong>
-                      <small>
-                        {item?.category ?? "Sem categoria"}
-                        {item?.bought_at ? ` • ${new Date(item.bought_at).toLocaleDateString("pt-BR")}` : ""}
-                      </small>
+                      <strong>Acerto com {account.memberName}</strong>
+                      <small>Compensação automática das dívidas nos dois sentidos</small>
                     </div>
                     <div className="item-value">
-                      <strong>{currency.format(asNumber(share.amount))}</strong>
-                      <small>você deve</small>
+                      <strong>{currency.format(netAmount)}</strong>
+                      <small>{account.net > 0 ? "você paga" : account.net < 0 ? "você recebe" : "saldo final"}</small>
                     </div>
-                    <span className={`status-pill ${isConfirmed ? "success" : hasReceipt ? "info" : "warning"}`}>
-                      {isConfirmed ? "Quitado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
+                    <span className={`status-pill ${account.net < 0 ? hasIncomingReceipt ? "info" : "success" : account.net === 0 ? "violet" : hasReceipt ? "info" : "warning"}`}>
+                      {account.net < 0 ? hasIncomingReceipt ? "Comprovante recebido" : "A receber" : account.net === 0 ? "Compensado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
                     </span>
                   </div>
-                  <div className="purchase-payer">
-                    <div>
-                      <span>Enviar para</span>
-                      <strong>{paidBy?.name ?? "Pagador não informado"}</strong>
-                    </div>
-                    <div>
-                      <span>Chave PIX</span>
-                      <strong>{paidBy?.pix_key ?? "Chave PIX não cadastrada"}</strong>
-                    </div>
+
+                  <div className="netting-explanation">
+                    <span>Você deve a {account.memberName}: <strong>{currency.format(account.grossOutgoing)}</strong></span>
+                    <span>{account.memberName} deve a você: <strong>{currency.format(account.grossIncoming)}</strong></span>
+                    <p>
+                      {account.net > 0
+                        ? `Como os dois possuem dívidas, subtraímos ${currency.format(account.grossIncoming)} de ${currency.format(account.grossOutgoing)}. Você só precisa pagar ${currency.format(account.net)}.`
+                        : account.net < 0
+                          ? `Como os dois possuem dívidas, subtraímos ${currency.format(account.grossOutgoing)} de ${currency.format(account.grossIncoming)}. ${account.memberName} só precisa pagar ${currency.format(Math.abs(account.net))} a você.`
+                          : "As dívidas têm o mesmo valor e se compensam totalmente. Ninguém precisa fazer Pix."}
+                    </p>
                   </div>
-                  {!isConfirmed && !hasReceipt && (
+
+                  {account.net > 0 && (
+                    <div className="purchase-payer">
+                      <div>
+                        <span>Enviar para</span>
+                        <strong>{account.memberName}</strong>
+                      </div>
+                      <div>
+                        <span>Chave PIX</span>
+                        <strong>{account.pixKey ?? "Chave PIX não cadastrada"}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {account.net < 0 && (
+                    <div className="purchase-payer">
+                      <div>
+                        <span>Quem deve pagar</span>
+                        <strong>{account.memberName}</strong>
+                      </div>
+                      <div>
+                        <span>Valor líquido a receber</span>
+                        <strong>{currency.format(Math.abs(account.net))}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {account.net > 0 && account.representativeShare && !hasReceipt && (
                     <div style={{ padding: "4px 16px 14px" }}>
                       <AttachmentUploadForm
-                        action={uploadShoppingShareReceipt}
-                        hiddenFields={{ share_id: share.id }}
+                        action={uploadShoppingNetReceipt}
+                        hiddenFields={{ share_id: account.representativeShare.id }}
                         redirectTo="/app/eu"
-                        label="Enviar comprovante"
+                        label="Enviar comprovante do saldo"
                       />
                     </div>
                   )}
-                  {hasReceipt && share.receipt_url && (
+
+                  {hasReceipt && account.receiptUrl && (
                     <div style={{ padding: "12px 16px" }}>
                       <div className="attachment-row">
-                        <a href={share.receipt_url} target="_blank" rel="noreferrer">
-                          Ver {share.receipt_name ?? "comprovante enviado"}
+                        <a href={account.receiptUrl} target="_blank" rel="noreferrer">
+                          Ver {account.representativeShare?.receipt_name ?? "comprovante enviado"}
                         </a>
                       </div>
+                    </div>
+                  )}
+
+                  {account.net < 0 && hasIncomingReceipt && (
+                    <div className="purchase-proof-actions" style={{ padding: "12px 16px" }}>
+                      {account.incomingReceiptUrl && (
+                        <div className="attachment-row">
+                          <a href={account.incomingReceiptUrl} target="_blank" rel="noreferrer">
+                            Ver {account.incomingReceiptShare?.receipt_name ?? "comprovante recebido"}
+                          </a>
+                        </div>
+                      )}
+                      <form action={confirmShoppingNetPayment}>
+                        <input type="hidden" name="share_id" value={account.incomingReceiptShare?.id} />
+                        <input type="hidden" name="redirect_to" value="/app/eu" />
+                        <button className="button secondary small" type="submit">Confirmar Pix</button>
+                      </form>
+                    </div>
+                  )}
+
+                  {account.net === 0 && (
+                    <div>
+                      <form action={settleZeroShoppingBalance} style={{ padding: "0 16px 14px" }}>
+                        <input type="hidden" name="counterparty_member_id" value={account.memberId} />
+                        <input type="hidden" name="redirect_to" value="/app/eu" />
+                        <button className="button secondary small" type="submit">Quitar por compensação</button>
+                      </form>
                     </div>
                   )}
                 </article>

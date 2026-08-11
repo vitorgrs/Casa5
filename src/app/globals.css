@@ -1518,6 +1518,81 @@ textarea {
 }
 
 /* Rateio e cobrança das compras */
+.shopping-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 0 20px 14px;
+}
+.shopping-search input {
+  min-width: 0;
+}
+.shopping-selection-count {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.shopping-selection-count strong {
+  color: var(--cyan);
+  font-size: 17px;
+}
+.shopping-select-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.shopping-select-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  transition: background 0.15s ease;
+}
+.shopping-select-row:last-child {
+  border-bottom: 0;
+}
+.shopping-select-row.selected {
+  background: rgba(34, 211, 238, 0.045);
+}
+.shopping-select-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+.shopping-select-main > input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+.shopping-inline-editor summary {
+  color: var(--cyan);
+  font-size: 10px;
+  cursor: pointer;
+}
+.shopping-inline-editor[open] {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-3);
+}
+.shopping-inline-editor form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.5fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 10px;
+}
 .purchase-form-wrap {
   margin: 0 20px 20px;
   padding: 18px;
@@ -1529,6 +1604,41 @@ textarea {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+.purchase-item-values {
+  display: grid;
+  gap: 8px;
+}
+.purchase-item-value-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.55fr) minmax(130px, 0.55fr) minmax(110px, auto);
+  align-items: end;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+.purchase-item-value-row > strong {
+  align-self: center;
+  font-size: 12px;
+}
+.purchase-total-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 16px;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 12px;
+  background: rgba(34, 211, 238, 0.055);
+}
+.purchase-total-preview span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.purchase-total-preview strong {
+  color: var(--cyan);
+  font-size: 20px;
 }
 .purchase-scope {
   display: flex;
@@ -1588,6 +1698,24 @@ textarea {
   gap: 6px;
   flex-wrap: wrap;
 }
+.purchase-items-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+.purchase-items-breakdown div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 10px;
+}
+.purchase-items-breakdown span {
+  color: var(--muted);
+}
 .purchase-payer {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1618,6 +1746,11 @@ textarea {
 .purchase-shares {
   display: grid;
 }
+.purchase-shares-note {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
 .purchase-share {
   display: grid;
   grid-template-columns: minmax(150px, 1fr) minmax(100px, 0.45fr) auto minmax(180px, auto);
@@ -1645,6 +1778,27 @@ textarea {
 .purchase-share .status-pill,
 .personal-purchase-summary .status-pill {
   white-space: nowrap;
+}
+.netting-explanation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  padding: 13px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 11px;
+}
+.netting-explanation > span {
+  color: var(--muted);
+}
+.netting-explanation > span strong {
+  color: var(--text);
+}
+.netting-explanation p {
+  grid-column: 1 / -1;
+  margin: 3px 0 0;
+  color: #c4b5fd;
+  line-height: 1.55;
 }
 
 /* Calendário */
@@ -1975,8 +2129,22 @@ textarea {
     padding-right: 0;
   }
   .purchase-scope-grid,
-  .purchase-payer {
+  .purchase-payer,
+  .shopping-toolbar,
+  .shopping-inline-editor form,
+  .purchase-item-value-row,
+  .netting-explanation {
     grid-template-columns: 1fr;
+  }
+  .shopping-select-row {
+    grid-template-columns: 1fr auto;
+  }
+  .shopping-select-row > form,
+  .shopping-select-row > details {
+    justify-self: start;
+  }
+  .shopping-inline-editor[open] {
+    grid-column: 1 / -1;
   }
   .purchase-summary,
   .purchase-share {
@@ -1994,5 +2162,8 @@ textarea {
   }
   .purchase-actions {
     justify-content: flex-start;
+  }
+  .netting-explanation p {
+    grid-column: auto;
   }
 }

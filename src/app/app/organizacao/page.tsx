@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { AttachmentUploadForm } from "@/components/attachment-upload-form";
 import { CartIcon, ChecklistIcon, PlusIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
@@ -7,16 +6,13 @@ import { currency } from "@/lib/format";
 import { signedReceiptUrl } from "@/lib/storage";
 import {
   addShoppingItem,
-  confirmShoppingSharePayment,
+  confirmShoppingNetPayment,
   createTask,
-  deleteShoppingItem,
   deleteTask,
-  resetShoppingItem,
-  toggleShoppingChecked,
+  resetShoppingPurchase,
   toggleTaskAssignee,
-  uploadShoppingShareReceipt,
 } from "./actions";
-import { ShoppingPurchaseForm } from "./shopping-purchase-form";
+import { ShoppingListManager } from "./shopping-purchase-form";
 
 const purchaseScopeLabels: Record<string, string> = {
   household: "Casa toda",
@@ -27,7 +23,7 @@ const purchaseScopeLabels: Record<string, string> = {
 export default async function OrganizacaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ nova?: string; item?: string; success?: string }>;
+  searchParams: Promise<{ nova?: string; success?: string }>;
 }) {
   const params = await searchParams;
   const baseRoute = "/app/organizacao";
@@ -35,7 +31,7 @@ export default async function OrganizacaoPage({
   const canManageTasks = can(profile, "manage_tasks");
   const canManageShopping = can(profile, "manage_shopping");
 
-  const [{ data: members }, { data: tasks }, { data: shoppingItems }] =
+  const [{ data: members }, { data: tasks }, { data: shoppingItems }, { data: purchases }] =
     await Promise.all([
       supabase
         .from("household_members")
@@ -54,10 +50,17 @@ export default async function OrganizacaoPage({
       supabase
         .from("shopping_items")
         .select(
-          "id,name,note,category,status,quantity_planned,quantity_bought,unit_price,purchase_scope,paid_by_member_id,checked_at,bought_at,created_at,paid_by:household_members!shopping_items_paid_by_member_id_fkey(id,name,pix_key),shopping_item_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
+          "id,name,note,category,status,quantity_planned,quantity_bought,unit_price,purchase_id,checked_at,bought_at,created_at",
         )
         .eq("household_id", profile.household_id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("shopping_purchases")
+        .select(
+          "id,purchase_scope,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,category,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
+        )
+        .eq("household_id", profile.household_id)
+        .order("bought_at", { ascending: false }),
     ]);
 
   const openTasks = (tasks ?? []).filter((t) =>
@@ -69,11 +72,11 @@ export default async function OrganizacaoPage({
     (t) => (t.task_assignees ?? []).length > 0 && (t.task_assignees ?? []).every((a) => a.done),
   );
 
-  const shoppingItemsWithReceipts = await Promise.all(
-    (shoppingItems ?? []).map(async (item) => ({
-      ...item,
-      shopping_item_shares: await Promise.all(
-        (item.shopping_item_shares ?? []).map(async (share) => ({
+  const purchasesWithReceipts = await Promise.all(
+    (purchases ?? []).map(async (purchase) => ({
+      ...purchase,
+      shopping_purchase_shares: await Promise.all(
+        (purchase.shopping_purchase_shares ?? []).map(async (share) => ({
           ...share,
           receipt_url: await signedReceiptUrl(supabase, share.receipt_path),
         })),
@@ -81,14 +84,10 @@ export default async function OrganizacaoPage({
     })),
   );
 
-  const toBuy = shoppingItemsWithReceipts.filter((i) => i.status === "list");
-  const checked = shoppingItemsWithReceipts.filter((i) => i.status === "checked");
-  const bought = shoppingItemsWithReceipts.filter((i) => i.status === "bought");
-  const selectedItem = [...toBuy, ...checked].find((item) => item.id === params.item);
-  const totalSpent = bought.reduce(
-    (sum, i) => sum + (Number(i.quantity_bought ?? 0) * Number(i.unit_price ?? 0)),
-    0,
-  );
+  const openShoppingItems = (shoppingItems ?? []).filter((item) => ["list", "checked"].includes(item.status));
+  const legacyBought = (shoppingItems ?? []).filter((item) => item.status === "bought" && !item.purchase_id);
+  const totalSpent = purchasesWithReceipts.reduce((sum, purchase) => sum + Number(purchase.total_amount), 0)
+    + legacyBought.reduce((sum, item) => sum + Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0), 0);
 
   return (
     <>
@@ -274,128 +273,95 @@ export default async function OrganizacaoPage({
         <div style={{ padding: "0 20px 8px" }}>
           <h4 style={{ margin: "8px 0" }}>
             <ChecklistIcon style={{ verticalAlign: "middle", marginRight: 6 }} />
-            Checklist do mercado ({toBuy.length + checked.length} itens)
+            Checklist do mercado ({openShoppingItems.length} itens)
           </h4>
         </div>
-        <div className="list">
-          {[...toBuy, ...checked].length === 0 && (
-            <div className="empty">Nenhum item na lista de compras.</div>
-          )}
-          {[...checked, ...toBuy].map((item) => (
-            <div className="list-row" key={item.id}>
-              <div className="item-title">
-                <strong className={item.status === "checked" ? "strike" : undefined}>
-                  {item.name}
-                </strong>
-                <small>
-                  {item.quantity_planned ? `${item.quantity_planned} • ` : ""}
-                  {item.category ?? ""}
-                </small>
-              </div>
-              <span className={`status-pill ${item.status === "checked" ? "success" : "info"}`}>
-                {item.status === "checked" ? "No carrinho" : "Falta comprar"}
-              </span>
-              {canManageShopping && (
-                <form action={toggleShoppingChecked}>
-                  <input type="hidden" name="item_id" value={item.id} />
-                  <input
-                    type="hidden"
-                    name="next_status"
-                    value={item.status === "checked" ? "list" : "checked"}
-                  />
-                  <input type="hidden" name="redirect_to" value={baseRoute} />
-                  <button className="button ghost small" type="submit">
-                    {item.status === "checked" ? "Desmarcar" : "Marcar"}
-                  </button>
-                </form>
-              )}
-              {canManageShopping && (
-                <Link className="button secondary small" href={`${baseRoute}?item=${item.id}#compra`}>
-                  Lançar compra
-                </Link>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {selectedItem && canManageShopping && (
-          <div id="compra" className="purchase-form-wrap">
-            <ShoppingPurchaseForm
-              itemId={selectedItem.id}
-              itemName={selectedItem.name}
-              members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
-              currentMemberId={profile.member_id}
-              redirectTo={baseRoute}
-            />
-          </div>
-        )}
+        <ShoppingListManager
+          items={openShoppingItems.map((item) => ({
+            id: item.id,
+            name: item.name,
+            note: item.note,
+            category: item.category,
+            status: item.status as "list" | "checked",
+            quantity_planned: item.quantity_planned,
+          }))}
+          members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
+          currentMemberId={profile.member_id}
+          canManage={canManageShopping}
+          redirectTo={baseRoute}
+        />
 
         <div style={{ padding: "0 20px 8px" }}>
-          <h4 style={{ margin: "8px 0" }}>Já comprados ({bought.length})</h4>
+          <h4 style={{ margin: "8px 0" }}>
+            Compras registradas ({purchasesWithReceipts.length + legacyBought.length})
+          </h4>
         </div>
         <div className="purchase-list">
-          {bought.length === 0 && <div className="empty">Nenhuma compra registrada ainda.</div>}
-          {bought.map((item) => {
-            const paidBy = Array.isArray(item.paid_by) ? item.paid_by[0] : item.paid_by;
-            const shares = item.shopping_item_shares ?? [];
-            const total = Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0);
-            const canConfirm = canManageShopping || profile.member_id === item.paid_by_member_id;
+          {purchasesWithReceipts.length === 0 && legacyBought.length === 0 && (
+            <div className="empty">Nenhuma compra registrada ainda.</div>
+          )}
+          {purchasesWithReceipts.map((purchase) => {
+            const paidBy = Array.isArray(purchase.paid_by) ? purchase.paid_by[0] : purchase.paid_by;
+            const shares = purchase.shopping_purchase_shares ?? [];
+            const purchaseItems = purchase.items ?? [];
+            const canConfirm = canManageShopping || profile.member_id === purchase.paid_by_member_id;
             return (
-              <article className="purchase-card" key={item.id}>
+              <article className="purchase-card" key={purchase.id}>
                 <div className="purchase-summary">
                   <div className="item-title">
-                    <strong>{item.name}</strong>
+                    <strong>{purchaseItems.map((item) => item.name).join(", ") || "Compra"}</strong>
                     <small>
-                      {item.category ?? "Sem categoria"} • {item.quantity_bought ?? "—"} × {item.unit_price
-                        ? currency.format(Number(item.unit_price))
-                        : "—"}
+                      {purchaseItems.length} item(ns) • {new Date(purchase.bought_at).toLocaleDateString("pt-BR")}
                     </small>
                   </div>
                   <span className="status-pill violet">
-                    {purchaseScopeLabels[item.purchase_scope ?? ""] ?? "Sem rateio"}
+                    {purchaseScopeLabels[purchase.purchase_scope] ?? "Sem rateio"}
                   </span>
                   <div className="item-value">
-                    <strong>{currency.format(total)}</strong>
+                    <strong>{currency.format(Number(purchase.total_amount))}</strong>
                     <small>total</small>
                   </div>
                   {canManageShopping && (
                     <div className="purchase-actions">
-                      <form action={resetShoppingItem}>
-                        <input type="hidden" name="item_id" value={item.id} />
+                      <form action={resetShoppingPurchase}>
+                        <input type="hidden" name="purchase_id" value={purchase.id} />
                         <input type="hidden" name="redirect_to" value={baseRoute} />
-                        <button className="button ghost small" type="submit">Voltar à lista</button>
-                      </form>
-                      <form action={deleteShoppingItem}>
-                        <input type="hidden" name="item_id" value={item.id} />
-                        <input type="hidden" name="redirect_to" value={baseRoute} />
-                        <button className="button danger small" type="submit">Excluir</button>
+                        <button className="button ghost small" type="submit">Voltar itens à lista</button>
                       </form>
                     </div>
                   )}
                 </div>
 
-                {paidBy ? (
-                  <div className="purchase-payer">
-                    <div>
-                      <span>Pago por</span>
-                      <strong>{paidBy.name}</strong>
+                <div className="purchase-items-breakdown">
+                  {purchaseItems.map((item) => (
+                    <div key={item.id}>
+                      <span>{item.name}</span>
+                      <strong>
+                        {item.quantity_bought ?? "—"} × {currency.format(Number(item.unit_price ?? 0))}
+                      </strong>
                     </div>
-                    <div>
-                      <span>PIX para reembolso</span>
-                      <strong>{paidBy.pix_key ?? "Chave PIX não cadastrada"}</strong>
-                    </div>
+                  ))}
+                </div>
+
+                <div className="purchase-payer">
+                  <div>
+                    <span>Pago por</span>
+                    <strong>{paidBy?.name ?? "Pagador não informado"}</strong>
                   </div>
-                ) : (
-                  <p className="note" style={{ padding: "0 20px" }}>
-                    Compra antiga, registrada antes do recurso de rateio.
-                  </p>
-                )}
+                  <div>
+                    <span>PIX para o saldo líquido</span>
+                    <strong>{paidBy?.pix_key ?? "Chave PIX não cadastrada"}</strong>
+                  </div>
+                </div>
 
                 {shares.length > 0 && (
                   <div className="purchase-shares">
+                    <p className="note purchase-shares-note">
+                      Partes brutas desta compra. O valor do Pix é compensado com dívidas no sentido contrário na Minha página.
+                    </p>
                     {shares.map((share) => {
                       const member = Array.isArray(share.member) ? share.member[0] : share.member;
-                      const isPayerShare = share.member_id === item.paid_by_member_id;
+                      const isPayerShare = share.member_id === purchase.paid_by_member_id;
                       const hasReceipt = Boolean(share.receipt_path);
                       const isConfirmed = share.payment_status === "paid";
                       return (
@@ -412,15 +378,6 @@ export default async function OrganizacaoPage({
                             {isConfirmed ? "Quitado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
                           </span>
 
-                          {!isPayerShare && share.member_id === profile.member_id && !isConfirmed && !hasReceipt && (
-                            <AttachmentUploadForm
-                              action={uploadShoppingShareReceipt}
-                              hiddenFields={{ share_id: share.id }}
-                              redirectTo={baseRoute}
-                              label="Enviar comprovante"
-                            />
-                          )}
-
                           {hasReceipt && (
                             <div className="purchase-proof-actions">
                               {share.receipt_url && (
@@ -431,7 +388,7 @@ export default async function OrganizacaoPage({
                                 </div>
                               )}
                               {!isPayerShare && canConfirm && !isConfirmed && (
-                                <form action={confirmShoppingSharePayment}>
+                                <form action={confirmShoppingNetPayment}>
                                   <input type="hidden" name="share_id" value={share.id} />
                                   <input type="hidden" name="redirect_to" value={baseRoute} />
                                   <button className="button secondary small" type="submit">Confirmar Pix</button>
@@ -447,6 +404,22 @@ export default async function OrganizacaoPage({
               </article>
             );
           })}
+
+          {legacyBought.map((item) => (
+            <article className="purchase-card" key={item.id}>
+              <div className="purchase-summary">
+                <div className="item-title">
+                  <strong>{item.name}</strong>
+                  <small>Compra antiga sem rateio consolidado</small>
+                </div>
+                <span className="status-pill muted">Legado</span>
+                <div className="item-value">
+                  <strong>{currency.format(Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0))}</strong>
+                  <small>total</small>
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
     </>
