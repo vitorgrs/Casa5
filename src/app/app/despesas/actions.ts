@@ -153,7 +153,9 @@ export async function updateExpense(formData: FormData) {
     [
       supabase
         .from("expense_shares")
-        .select("member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at")
+        .select(
+          "member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at,receipt_path,receipt_name,receipt_uploaded_by,receipt_uploaded_at",
+        )
         .eq("expense_id", expenseId),
       supabase
         .from("expenses")
@@ -170,6 +172,10 @@ export async function updateExpense(formData: FormData) {
     note: string | null;
     reimbursement_status: string;
     reimbursement_paid_at: string | null;
+    receipt_path: string | null;
+    receipt_name: string | null;
+    receipt_uploaded_by: string | null;
+    receipt_uploaded_at: string | null;
   };
   const previous = new Map<string, PreviousShare>(
     (currentShares ?? []).map((share: PreviousShare) => [
@@ -211,10 +217,23 @@ export async function updateExpense(formData: FormData) {
         return {
           ...share,
           expense_id: expenseId,
-          payment_status: old?.payment_status ?? "pending",
-          paid_at: old?.paid_at ?? null,
-          payment_method: old?.payment_method ?? null,
+          payment_status:
+            old?.payment_status === "paid" && !old.receipt_path
+              ? "pending"
+              : (old?.payment_status ?? "pending"),
+          paid_at:
+            old?.payment_status === "paid" && old.receipt_path
+              ? old.paid_at
+              : null,
+          payment_method:
+            old?.payment_status === "paid" && old.receipt_path
+              ? old.payment_method
+              : null,
           note: old?.note ?? null,
+          receipt_path: old?.receipt_path ?? null,
+          receipt_name: old?.receipt_name ?? null,
+          receipt_uploaded_by: old?.receipt_uploaded_by ?? null,
+          receipt_uploaded_at: old?.receipt_uploaded_at ?? null,
           reimbursement_status: hasReimbursement
             ? (old?.reimbursement_status && old.reimbursement_status !== "not_applicable"
                 ? old.reimbursement_status
@@ -247,9 +266,26 @@ export async function updateExpense(formData: FormData) {
 
 export async function setPaymentStatus(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { supabase } = await requirePermission("mark_expenses_paid");
+  const { profile, supabase } = await requirePermission("mark_expenses_paid");
   const shareId = String(formData.get("share_id"));
   const status = String(formData.get("status"));
+  if (!["paid", "pending"].includes(status)) {
+    throw new Error("Status de pagamento inválido.");
+  }
+
+  const { data: share } = await supabase
+    .from("expense_shares")
+    .select("id,expense_id,receipt_path,expense:expenses(household_id)")
+    .eq("id", shareId)
+    .single();
+  const expense = Array.isArray(share?.expense) ? share.expense[0] : share?.expense;
+  if (!share || !expense || expense.household_id !== profile.household_id) {
+    throw new Error("Pagamento não encontrado.");
+  }
+  if (status === "paid" && !share.receipt_path) {
+    throw new Error("Anexe o comprovante antes de marcar esta parcela como paga.");
+  }
+
   const { data: changed, error } = await supabase
     .from("expense_shares")
     .update({
@@ -258,6 +294,7 @@ export async function setPaymentStatus(formData: FormData) {
       payment_method: status === "paid" ? "Mercado Pago / Pix" : null,
     })
     .eq("id", shareId)
+    .eq("expense_id", share.expense_id)
     .select("expense_id")
     .single();
   if (error || !changed)
@@ -361,7 +398,10 @@ export async function uploadShareReceipt(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath(pathOf(returnTo));
-  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante enviado.")}`);
+  const separator = returnTo.includes("?") ? "&" : "?";
+  redirect(
+    `${returnTo}${separator}success=${encodeURIComponent("Comprovante enviado.")}`,
+  );
 }
 
 export async function deleteShareReceipt(formData: FormData) {
@@ -370,9 +410,12 @@ export async function deleteShareReceipt(formData: FormData) {
   const shareId = String(formData.get("share_id"));
   const { data: share } = await supabase
     .from("expense_shares")
-    .select("receipt_path")
+    .select("receipt_path,payment_status")
     .eq("id", shareId)
     .single();
+  if (share?.payment_status === "paid") {
+    throw new Error("Desfaça a marcação de pagamento antes de remover o comprovante.");
+  }
   if (share?.receipt_path) await deleteFromReceiptBucket(supabase, share.receipt_path);
   const { error } = await supabase
     .from("expense_shares")

@@ -338,11 +338,11 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
 
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
-  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante da compra enviado.")}`);
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante enviado. O pagamento aguarda a confirmação de quem recebeu o PIX.")}`);
 }
 
 export async function confirmShoppingNetPayment(formData: FormData) {
-  const returnTo = destination(formData, "/app/organizacao");
+  const returnTo = destination(formData, "/app/eu");
   const { supabase } = await requireActiveProfile();
   const shareId = String(formData.get("share_id") ?? "");
   const { error } = await supabase.rpc("confirm_shopping_net_payment", {
@@ -352,7 +352,7 @@ export async function confirmShoppingNetPayment(formData: FormData) {
 
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
-  redirect(returnTo);
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Pagamento marcado como pago.")}`);
 }
 
 export async function settleZeroShoppingBalance(formData: FormData) {

@@ -222,7 +222,8 @@ export default async function MyPage({
             <div>
               <h2>Acertos de compras entre moradores</h2>
               <span className="muted-text" style={{ fontSize: 10 }}>
-                Dívidas recíprocas são compensadas antes de mostrar quem paga o Pix.
+                Envie o comprovante por aqui. O recebedor só poderá marcar o
+                pagamento como pago depois que o arquivo for anexado.
               </span>
             </div>
             <WalletIcon />
@@ -247,7 +248,7 @@ export default async function MyPage({
                       <small>{account.net > 0 ? "você paga" : account.net < 0 ? "você recebe" : "saldo final"}</small>
                     </div>
                     <span className={`status-pill ${account.net < 0 ? hasIncomingReceipt ? "info" : "success" : account.net === 0 ? "violet" : hasReceipt ? "info" : "warning"}`}>
-                      {account.net < 0 ? hasIncomingReceipt ? "Comprovante recebido" : "A receber" : account.net === 0 ? "Compensado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
+                      {account.net < 0 ? hasIncomingReceipt ? "Comprovante recebido" : "A receber" : account.net === 0 ? "Compensado" : hasReceipt ? "Aguardando confirmação" : "PIX pendente"}
                     </span>
                   </div>
 
@@ -295,7 +296,7 @@ export default async function MyPage({
                         action={uploadShoppingNetReceipt}
                         hiddenFields={{ share_id: account.representativeShare.id }}
                         redirectTo="/app/eu"
-                        label="Enviar comprovante do saldo"
+                        label="Enviar comprovante do PIX"
                       />
                     </div>
                   )}
@@ -322,7 +323,7 @@ export default async function MyPage({
                       <form action={confirmShoppingNetPayment}>
                         <input type="hidden" name="share_id" value={account.incomingReceiptShare?.id} />
                         <input type="hidden" name="redirect_to" value="/app/eu" />
-                        <button className="button secondary small" type="submit">Confirmar Pix</button>
+                        <button className="button secondary small" type="submit">Marcar como pago</button>
                       </form>
                     </div>
                   )}

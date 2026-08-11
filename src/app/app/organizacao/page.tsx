@@ -6,7 +6,6 @@ import { currency } from "@/lib/format";
 import { signedReceiptUrl } from "@/lib/storage";
 import {
   addShoppingItem,
-  confirmShoppingNetPayment,
   createTask,
   deleteTask,
   removeItemFromShoppingPurchase,
@@ -312,7 +311,6 @@ export default async function OrganizacaoPage({
             const paidBy = Array.isArray(purchase.paid_by) ? purchase.paid_by[0] : purchase.paid_by;
             const shares = purchase.shopping_purchase_shares ?? [];
             const purchaseItems = purchase.items ?? [];
-            const canConfirm = canManageShopping || profile.member_id === purchase.paid_by_member_id;
             return (
               <article className="purchase-card" key={purchase.id}>
                 <div className="purchase-summary">
@@ -402,13 +400,6 @@ export default async function OrganizacaoPage({
                                     Ver {share.receipt_name ?? "comprovante"}
                                   </a>
                                 </div>
-                              )}
-                              {!isPayerShare && canConfirm && !isConfirmed && (
-                                <form action={confirmShoppingNetPayment}>
-                                  <input type="hidden" name="share_id" value={share.id} />
-                                  <input type="hidden" name="redirect_to" value={baseRoute} />
-                                  <button className="button secondary small" type="submit">Confirmar Pix</button>
-                                </form>
                               )}
                             </div>
                           )}

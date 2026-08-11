@@ -23,7 +23,7 @@ import {
 } from "./actions";
 import { ExpenseForm } from "./expense-form";
 
-type Search = { month?: string; novo?: string };
+type Search = { month?: string; novo?: string; success?: string };
 
 function validMonth(value?: string) {
   if (value && /^\d{4}-\d{2}$/.test(value)) return value;
@@ -118,6 +118,15 @@ export default async function ExpensesPage({
           )}
         </div>
       </div>
+
+      {params.success && <div className="message success">{params.success}</div>}
+
+      {profile.role === "admin" && (
+        <div className="message info">
+          Como administrador, você pode visualizar a parcela de cada morador,
+          anexar o comprovante em nome dele e depois marcar o pagamento como pago.
+        </div>
+      )}
 
       <div className="grid cols-3">
         <div className="card metric-card">
@@ -268,7 +277,8 @@ export default async function ExpensesPage({
                                   Ver
                                 </a>
                               )}
-                              {(profile.member_id === share.member_id || canManageExpenses) && (
+                              {(profile.member_id === share.member_id || canManageExpenses) &&
+                                share.payment_status !== "paid" && (
                                 <form action={deleteShareReceipt}>
                                   <input type="hidden" name="share_id" value={share.id} />
                                   <input type="hidden" name="redirect_to" value={baseRoute} />

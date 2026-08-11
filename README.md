@@ -415,8 +415,8 @@ No fluxo **Organização → Lista de compras → Lançar compra**:
    ele participa e cria dívida para os demais.
 5. Cada devedor vê na **Minha página** o valor, o nome e a chave PIX de quem
    pagou, podendo enviar um comprovante em PDF ou foto.
-6. O pagador (ou quem gerencia compras) confere o arquivo em **Organização**
-   e confirma o Pix.
+6. O pagador confere o arquivo na própria **Minha página** e marca o Pix como
+   pago.
 
 ## Atualização: compra com vários itens e compensação de dívidas
 
@@ -468,3 +468,32 @@ lista, lançar compras, desfazer lançamentos e retirar um item de uma compra.
 Os demais moradores possuem acesso de leitura e pesquisa. O envio do próprio
 comprovante e a confirmação pelo recebedor do PIX continuam disponíveis para
 concluir o acerto financeiro.
+
+## Atualização: comprovante e pagamento na página individual
+
+Depois da migração 008, rode:
+
+```text
+supabase/migrations/009_individual_receipt_payment_flow.sql
+```
+
+O devedor envia o comprovante do PIX pela **Minha página**. O recebedor vê o
+arquivo também na própria página individual e somente depois disso pode usar
+**Marcar como pago**. A regra é validada no banco: sem comprovante, ou por uma
+pessoa diferente do recebedor, o pagamento não pode ser baixado. Quando as
+dívidas se compensam integralmente e nenhum PIX é necessário, a quitação por
+compensação continua disponível sem comprovante.
+
+## Atualização: comprovantes das despesas pelo administrador
+
+Depois da migração 009, rode:
+
+```text
+supabase/migrations/010_expense_receipt_before_paid.sql
+```
+
+Na página **Despesas**, o administrador visualiza as parcelas de todos os
+moradores, pode anexar o comprovante em nome de cada um e, depois do anexo,
+marcar a parcela como paga. Sem comprovante, o botão de pagamento fica
+bloqueado e o banco também rejeita a baixa. Para remover o comprovante de uma
+parcela paga, primeiro é necessário desfazer o pagamento.
