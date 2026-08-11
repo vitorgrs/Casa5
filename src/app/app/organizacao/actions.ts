@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireActiveProfile, requirePermission } from "@/lib/auth";
+import {
+  requireActiveProfile,
+  requireAdmin,
+  requirePermission,
+} from "@/lib/auth";
 import { deleteFromReceiptBucket, uploadToReceiptBucket } from "@/lib/storage";
 
 function destination(formData: FormData, fallback: string) {
@@ -133,7 +137,7 @@ export async function deleteTask(formData: FormData) {
 
 export async function addShoppingItem(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { profile, supabase } = await requirePermission("manage_shopping");
+  const { profile, supabase } = await requireAdmin();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) throw new Error("Informe o nome do item.");
   const quantityPlanned = decimal(formData.get("quantity_planned"));
@@ -155,7 +159,7 @@ export async function addShoppingItem(formData: FormData) {
 
 export async function toggleShoppingChecked(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requirePermission("manage_shopping");
+  const { supabase } = await requireAdmin();
   const itemId = String(formData.get("item_id"));
   const nextStatus = String(formData.get("next_status") ?? "checked");
   if (!["list", "checked"].includes(nextStatus)) throw new Error("Status do item inválido.");
@@ -176,7 +180,7 @@ export async function toggleShoppingChecked(formData: FormData) {
 
 export async function updateShoppingItem(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { profile, supabase } = await requirePermission("manage_shopping");
+  const { profile, supabase } = await requireAdmin();
   const itemId = String(formData.get("item_id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   const quantityPlanned = decimal(formData.get("quantity_planned"));
@@ -198,7 +202,7 @@ export async function updateShoppingItem(formData: FormData) {
 
 export async function recordShoppingPurchase(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requirePermission("manage_shopping");
+  const { supabase } = await requireAdmin();
   const itemIds = Array.from(
     new Set(formData.getAll("selected_item_ids").map(String).filter(Boolean)),
   );
@@ -235,7 +239,7 @@ export async function recordShoppingPurchase(formData: FormData) {
 
 export async function resetShoppingPurchase(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requirePermission("manage_shopping");
+  const { supabase } = await requireAdmin();
   const purchaseId = String(formData.get("purchase_id") ?? "");
   const { count: pendingReceipts } = await supabase
     .from("shopping_purchase_shares")
@@ -258,7 +262,7 @@ export async function resetShoppingPurchase(formData: FormData) {
 
 export async function removeItemFromShoppingPurchase(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requirePermission("manage_shopping");
+  const { supabase } = await requireAdmin();
   const purchaseId = String(formData.get("purchase_id") ?? "");
   const itemId = String(formData.get("item_id") ?? "");
   if (!purchaseId || !itemId) throw new Error("Compra ou item não informado.");
@@ -276,7 +280,7 @@ export async function removeItemFromShoppingPurchase(formData: FormData) {
 
 export async function deleteShoppingItem(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
-  const { profile, supabase } = await requirePermission("manage_shopping");
+  const { profile, supabase } = await requireAdmin();
   const itemId = String(formData.get("item_id"));
   const { error } = await supabase
     .from("shopping_items")

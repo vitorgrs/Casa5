@@ -454,3 +454,17 @@ O item volta para a lista, o total é recalculado e o rateio dos itens restantes
 
 Por segurança, o sistema não permite alterar a composição da compra quando já
 existe comprovante pendente ou pagamento confirmado de algum participante.
+
+## Atualização: compras administradas somente pelo administrador
+
+Depois da migração 007, rode:
+
+```text
+supabase/migrations/008_admin_only_shopping.sql
+```
+
+Somente o administrador pode adicionar, editar, marcar ou excluir itens da
+lista, lançar compras, desfazer lançamentos e retirar um item de uma compra.
+Os demais moradores possuem acesso de leitura e pesquisa. O envio do próprio
+comprovante e a confirmação pelo recebedor do PIX continuam disponíveis para
+concluir o acerto financeiro.

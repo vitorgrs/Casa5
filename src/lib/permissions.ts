@@ -27,11 +27,6 @@ export const PERMISSION_CATALOG: { key: PermissionKey; label: string; descriptio
     description: "Criar, editar e apagar tarefas do calendário e da página de organização (pendências gerais).",
   },
   {
-    key: "manage_shopping",
-    label: "Gerenciar lista de compras",
-    description: "Adicionar itens, usar o checklist do mercado e lançar valores/quantidades depois da compra.",
-  },
-  {
     key: "manage_members",
     label: "Gerenciar moradores",
     description: "Editar e-mail de acesso e chave PIX de cada morador.",

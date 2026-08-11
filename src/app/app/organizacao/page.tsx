@@ -30,7 +30,7 @@ export default async function OrganizacaoPage({
   const baseRoute = "/app/organizacao";
   const { profile, supabase } = await requireActiveProfile();
   const canManageTasks = can(profile, "manage_tasks");
-  const canManageShopping = can(profile, "manage_shopping");
+  const canManageShopping = profile.role === "admin";
 
   const [{ data: members }, { data: tasks }, { data: shoppingItems }, { data: purchases }] =
     await Promise.all([
@@ -241,6 +241,13 @@ export default async function OrganizacaoPage({
           </div>
           <CartIcon />
         </div>
+
+        {!canManageShopping && (
+          <div className="message info" style={{ margin: "0 20px 20px" }}>
+            A lista e os lançamentos de compras são somente para
+            visualização. Apenas o administrador pode alterá-los.
+          </div>
+        )}
 
         {canManageShopping && (
           <div style={{ padding: "0 20px 20px" }}>

@@ -22,6 +22,10 @@ export type AppProfile = {
 };
 
 export function can(profile: AppProfile, perm: PermissionKey): boolean {
+  // A lista e os lançamentos de compras são administrados exclusivamente
+  // pelo administrador. A chave permanece no tipo apenas para compatibilidade
+  // com perfis criados antes dessa regra.
+  if (perm === "manage_shopping") return profile.role === "admin";
   if (profile.role === "admin") return true;
   return Boolean(profile.permissions?.[perm]);
 }
