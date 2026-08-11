@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireActiveProfile, requirePermission } from "@/lib/auth";
+import { deleteFromReceiptBucket, uploadToReceiptBucket } from "@/lib/storage";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -11,6 +12,36 @@ function destination(formData: FormData, fallback: string) {
 
 function pathOf(url: string) {
   return url.split("?")[0] || "/app";
+}
+
+function decimal(value: FormDataEntryValue | null): number | null {
+  let text = String(value ?? "").trim().replace(/\s/g, "");
+  if (!text) return null;
+  if (text.includes(",") && text.includes(".")) {
+    text = text.replace(/\./g, "").replace(",", ".");
+  } else if (text.includes(",")) {
+    text = text.replace(",", ".");
+  }
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function deleteShoppingReceipts(
+  supabase: Awaited<ReturnType<typeof requireActiveProfile>>["supabase"],
+  itemId: string,
+) {
+  const { data: shares } = await supabase
+    .from("shopping_item_shares")
+    .select("receipt_path")
+    .eq("shopping_item_id", itemId)
+    .not("receipt_path", "is", null);
+
+  await Promise.all(
+    (shares ?? [])
+      .map((share) => share.receipt_path)
+      .filter((path): path is string => Boolean(path))
+      .map((path) => deleteFromReceiptBucket(supabase, path)),
+  );
 }
 
 // ----------------------------------------------------------------------
@@ -135,19 +166,29 @@ export async function recordShoppingPurchase(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
   const { supabase } = await requirePermission("manage_shopping");
   const itemId = String(formData.get("item_id"));
-  const quantity = Number(String(formData.get("quantity_bought") ?? "0").replace(",", "."));
-  const unitPrice = Number(String(formData.get("unit_price") ?? "0").replace(",", "."));
-  const { error } = await supabase
-    .from("shopping_items")
-    .update({
-      status: "bought",
-      quantity_bought: Number.isFinite(quantity) ? quantity : null,
-      unit_price: Number.isFinite(unitPrice) ? unitPrice : null,
-      bought_at: new Date().toISOString(),
-    })
-    .eq("id", itemId);
+  const quantity = decimal(formData.get("quantity_bought"));
+  const unitPrice = decimal(formData.get("unit_price"));
+  const scope = String(formData.get("purchase_scope") ?? "");
+  const payerMemberId = String(formData.get("paid_by_member_id") ?? "");
+  const participantIds = Array.from(
+    new Set(formData.getAll("participant_ids").map(String).filter(Boolean)),
+  );
+
+  if (quantity === null || quantity <= 0) throw new Error("Informe uma quantidade válida.");
+  if (unitPrice === null || unitPrice < 0) throw new Error("Informe um valor unitário válido.");
+  if (!payerMemberId) throw new Error("Selecione quem pagou a compra.");
+
+  const { error } = await supabase.rpc("record_shopping_purchase", {
+    target_item_id: itemId,
+    purchased_quantity: quantity,
+    purchased_unit_price: unitPrice,
+    selected_scope: scope,
+    payer_member_id: payerMemberId,
+    participant_member_ids: participantIds,
+  });
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
+  revalidatePath("/app/eu");
   redirect(returnTo);
 }
 
@@ -155,24 +196,103 @@ export async function resetShoppingItem(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
   const { supabase } = await requirePermission("manage_shopping");
   const itemId = String(formData.get("item_id"));
+  await deleteShoppingReceipts(supabase, itemId);
+  const { error: sharesError } = await supabase
+    .from("shopping_item_shares")
+    .delete()
+    .eq("shopping_item_id", itemId);
+  if (sharesError) throw new Error(sharesError.message);
   const { error } = await supabase
     .from("shopping_items")
-    .update({ status: "list", checked_at: null, bought_at: null })
+    .update({
+      status: "list",
+      checked_at: null,
+      bought_at: null,
+      quantity_bought: null,
+      unit_price: null,
+      purchase_scope: null,
+      paid_by_member_id: null,
+    })
     .eq("id", itemId);
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
+  revalidatePath("/app/eu");
   redirect(returnTo);
 }
 
 export async function deleteShoppingItem(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
   const { profile, supabase } = await requirePermission("manage_shopping");
+  const itemId = String(formData.get("item_id"));
+  await deleteShoppingReceipts(supabase, itemId);
   const { error } = await supabase
     .from("shopping_items")
     .delete()
-    .eq("id", String(formData.get("item_id")))
+    .eq("id", itemId)
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
+  revalidatePath("/app/eu");
+  redirect(returnTo);
+}
+
+export async function uploadShoppingShareReceipt(formData: FormData) {
+  const returnTo = destination(formData, "/app/organizacao");
+  const { profile, supabase } = await requireActiveProfile();
+  const shareId = String(formData.get("share_id") ?? "");
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Selecione um arquivo (PDF ou foto) antes de enviar.");
+  }
+
+  const { data: share } = await supabase
+    .from("shopping_item_shares")
+    .select("id,member_id,receipt_path,item:shopping_items(household_id)")
+    .eq("id", shareId)
+    .single();
+  const item = Array.isArray(share?.item) ? share.item[0] : share?.item;
+  if (!share || !item || item.household_id !== profile.household_id) {
+    throw new Error("Dívida de compra não encontrada.");
+  }
+  if (share.member_id !== profile.member_id) {
+    throw new Error("Você só pode enviar o comprovante da sua própria dívida.");
+  }
+  if (share.receipt_path) {
+    throw new Error("Esta dívida já possui um comprovante enviado.");
+  }
+
+  const uploaded = await uploadToReceiptBucket(
+    supabase,
+    profile.household_id!,
+    `shopping-shares/${shareId}`,
+    file,
+  );
+
+  const { error } = await supabase.rpc("submit_shopping_share_receipt", {
+    target_share_id: shareId,
+    uploaded_path: uploaded.path,
+    uploaded_name: uploaded.name,
+  });
+  if (error) {
+    await deleteFromReceiptBucket(supabase, uploaded.path);
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/app/organizacao");
+  revalidatePath("/app/eu");
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante da compra enviado.")}`);
+}
+
+export async function confirmShoppingSharePayment(formData: FormData) {
+  const returnTo = destination(formData, "/app/organizacao");
+  const { supabase } = await requireActiveProfile();
+  const shareId = String(formData.get("share_id") ?? "");
+  const { error } = await supabase.rpc("confirm_shopping_share_payment", {
+    target_share_id: shareId,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/app/organizacao");
+  revalidatePath("/app/eu");
   redirect(returnTo);
 }

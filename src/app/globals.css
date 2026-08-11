@@ -1517,6 +1517,136 @@ textarea {
   color: var(--muted);
 }
 
+/* Rateio e cobrança das compras */
+.purchase-form-wrap {
+  margin: 0 20px 20px;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--panel-2);
+}
+.purchase-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.purchase-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.purchase-scope.selected,
+.member-check.selected {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.06);
+}
+.purchase-scope input {
+  width: auto;
+  margin-top: 2px;
+}
+.purchase-scope strong,
+.purchase-scope small {
+  display: block;
+}
+.purchase-scope strong {
+  font-size: 12px;
+}
+.purchase-scope small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.purchase-list {
+  display: grid;
+  gap: 12px;
+  padding: 0 20px 20px;
+}
+.purchase-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.015);
+}
+.purchase-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(90px, auto) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 16px;
+}
+.personal-purchase-summary {
+  grid-template-columns: minmax(180px, 1fr) minmax(100px, auto) auto;
+}
+.purchase-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.purchase-payer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(139, 92, 246, 0.045);
+}
+.purchase-payer div {
+  min-width: 0;
+}
+.purchase-payer span,
+.purchase-payer strong {
+  display: block;
+}
+.purchase-payer span {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.purchase-payer strong {
+  margin-top: 3px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.purchase-shares {
+  display: grid;
+}
+.purchase-share {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(100px, 0.45fr) auto minmax(180px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.purchase-share:last-child {
+  border-bottom: 0;
+}
+.purchase-share .attachment-upload-form {
+  margin-top: 0;
+}
+.purchase-share .attachment-row {
+  padding: 7px 9px;
+}
+.purchase-proof-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.purchase-share .status-pill,
+.personal-purchase-summary .status-pill {
+  white-space: nowrap;
+}
+
 /* Calendário */
 .calendar-grid {
   display: grid;
@@ -1834,5 +1964,35 @@ textarea {
     width: calc(100vw - 24px);
     max-height: 92vh;
     padding: 18px;
+  }
+  .purchase-form-wrap,
+  .purchase-list {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+  .purchase-list {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .purchase-scope-grid,
+  .purchase-payer {
+    grid-template-columns: 1fr;
+  }
+  .purchase-summary,
+  .purchase-share {
+    grid-template-columns: 1fr;
+  }
+  .purchase-summary > *,
+  .purchase-share > * {
+    display: flex;
+  }
+  .purchase-summary .item-title,
+  .purchase-share .item-title,
+  .purchase-summary .item-value,
+  .purchase-share .item-value {
+    display: block;
+  }
+  .purchase-actions {
+    justify-content: flex-start;
   }
 }

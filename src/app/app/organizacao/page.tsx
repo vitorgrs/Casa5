@@ -1,23 +1,33 @@
 import Link from "next/link";
+import { AttachmentUploadForm } from "@/components/attachment-upload-form";
 import { CartIcon, ChecklistIcon, PlusIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { currency } from "@/lib/format";
+import { signedReceiptUrl } from "@/lib/storage";
 import {
   addShoppingItem,
+  confirmShoppingSharePayment,
   createTask,
   deleteShoppingItem,
   deleteTask,
-  recordShoppingPurchase,
   resetShoppingItem,
   toggleShoppingChecked,
   toggleTaskAssignee,
+  uploadShoppingShareReceipt,
 } from "./actions";
+import { ShoppingPurchaseForm } from "./shopping-purchase-form";
+
+const purchaseScopeLabels: Record<string, string> = {
+  household: "Casa toda",
+  group: "Grupo",
+  individual: "Individual",
+};
 
 export default async function OrganizacaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ nova?: string; item?: string }>;
+  searchParams: Promise<{ nova?: string; item?: string; success?: string }>;
 }) {
   const params = await searchParams;
   const baseRoute = "/app/organizacao";
@@ -29,7 +39,7 @@ export default async function OrganizacaoPage({
     await Promise.all([
       supabase
         .from("household_members")
-        .select("id,name,initials,color_key")
+        .select("id,name,initials,color_key,pix_key")
         .eq("household_id", profile.household_id)
         .eq("active", true)
         .order("display_order"),
@@ -44,7 +54,7 @@ export default async function OrganizacaoPage({
       supabase
         .from("shopping_items")
         .select(
-          "id,name,note,category,status,quantity_planned,quantity_bought,unit_price,checked_at,bought_at,created_at",
+          "id,name,note,category,status,quantity_planned,quantity_bought,unit_price,purchase_scope,paid_by_member_id,checked_at,bought_at,created_at,paid_by:household_members!shopping_items_paid_by_member_id_fkey(id,name,pix_key),shopping_item_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
         )
         .eq("household_id", profile.household_id)
         .order("created_at", { ascending: false }),
@@ -59,9 +69,22 @@ export default async function OrganizacaoPage({
     (t) => (t.task_assignees ?? []).length > 0 && (t.task_assignees ?? []).every((a) => a.done),
   );
 
-  const toBuy = (shoppingItems ?? []).filter((i) => i.status === "list");
-  const checked = (shoppingItems ?? []).filter((i) => i.status === "checked");
-  const bought = (shoppingItems ?? []).filter((i) => i.status === "bought");
+  const shoppingItemsWithReceipts = await Promise.all(
+    (shoppingItems ?? []).map(async (item) => ({
+      ...item,
+      shopping_item_shares: await Promise.all(
+        (item.shopping_item_shares ?? []).map(async (share) => ({
+          ...share,
+          receipt_url: await signedReceiptUrl(supabase, share.receipt_path),
+        })),
+      ),
+    })),
+  );
+
+  const toBuy = shoppingItemsWithReceipts.filter((i) => i.status === "list");
+  const checked = shoppingItemsWithReceipts.filter((i) => i.status === "checked");
+  const bought = shoppingItemsWithReceipts.filter((i) => i.status === "bought");
+  const selectedItem = [...toBuy, ...checked].find((item) => item.id === params.item);
   const totalSpent = bought.reduce(
     (sum, i) => sum + (Number(i.quantity_bought ?? 0) * Number(i.unit_price ?? 0)),
     0,
@@ -79,6 +102,8 @@ export default async function OrganizacaoPage({
           </p>
         </div>
       </div>
+
+      {params.success && <div className="message success">{params.success}</div>}
 
       <section className="card" style={{ marginTop: 16 }}>
         <div className="card-head">
@@ -293,70 +318,135 @@ export default async function OrganizacaoPage({
           ))}
         </div>
 
-        {params.item && canManageShopping && (
-          <div id="compra" style={{ padding: "0 20px 20px" }}>
-            <form action={recordShoppingPurchase} className="form-grid cols-3">
-              <input type="hidden" name="item_id" value={params.item} />
-              <input type="hidden" name="redirect_to" value={baseRoute} />
-              <label className="field">
-                Quantidade comprada
-                <input name="quantity_bought" inputMode="decimal" required placeholder="Ex.: 2" />
-              </label>
-              <label className="field">
-                Valor unitário
-                <input name="unit_price" inputMode="decimal" required placeholder="0,00" />
-              </label>
-              <div className="form-actions">
-                <SubmitButton pendingLabel="Salvando...">Salvar compra</SubmitButton>
-                <Link className="button ghost" href={baseRoute}>
-                  Cancelar
-                </Link>
-              </div>
-            </form>
+        {selectedItem && canManageShopping && (
+          <div id="compra" className="purchase-form-wrap">
+            <ShoppingPurchaseForm
+              itemId={selectedItem.id}
+              itemName={selectedItem.name}
+              members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
+              currentMemberId={profile.member_id}
+              redirectTo={baseRoute}
+            />
           </div>
         )}
 
         <div style={{ padding: "0 20px 8px" }}>
           <h4 style={{ margin: "8px 0" }}>Já comprados ({bought.length})</h4>
         </div>
-        <div className="list">
+        <div className="purchase-list">
           {bought.length === 0 && <div className="empty">Nenhuma compra registrada ainda.</div>}
-          {bought.map((item) => (
-            <div className="list-row" key={item.id}>
-              <div className="item-title">
-                <strong>{item.name}</strong>
-                <small>{item.category ?? ""}</small>
-              </div>
-              <div className="item-value">
-                <strong>{item.quantity_bought ?? "—"}</strong>
-                <small>qtd</small>
-              </div>
-              <div className="item-value">
-                <strong>{item.unit_price ? currency.format(Number(item.unit_price)) : "—"}</strong>
-                <small>unitário</small>
-              </div>
-              <div className="item-value">
-                <strong>
-                  {currency.format(Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0))}
-                </strong>
-                <small>total</small>
-              </div>
-              {canManageShopping && (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <form action={resetShoppingItem}>
-                    <input type="hidden" name="item_id" value={item.id} />
-                    <input type="hidden" name="redirect_to" value={baseRoute} />
-                    <button className="button ghost small" type="submit">Voltar à lista</button>
-                  </form>
-                  <form action={deleteShoppingItem}>
-                    <input type="hidden" name="item_id" value={item.id} />
-                    <input type="hidden" name="redirect_to" value={baseRoute} />
-                    <button className="button danger small" type="submit">Excluir</button>
-                  </form>
+          {bought.map((item) => {
+            const paidBy = Array.isArray(item.paid_by) ? item.paid_by[0] : item.paid_by;
+            const shares = item.shopping_item_shares ?? [];
+            const total = Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0);
+            const canConfirm = canManageShopping || profile.member_id === item.paid_by_member_id;
+            return (
+              <article className="purchase-card" key={item.id}>
+                <div className="purchase-summary">
+                  <div className="item-title">
+                    <strong>{item.name}</strong>
+                    <small>
+                      {item.category ?? "Sem categoria"} • {item.quantity_bought ?? "—"} × {item.unit_price
+                        ? currency.format(Number(item.unit_price))
+                        : "—"}
+                    </small>
+                  </div>
+                  <span className="status-pill violet">
+                    {purchaseScopeLabels[item.purchase_scope ?? ""] ?? "Sem rateio"}
+                  </span>
+                  <div className="item-value">
+                    <strong>{currency.format(total)}</strong>
+                    <small>total</small>
+                  </div>
+                  {canManageShopping && (
+                    <div className="purchase-actions">
+                      <form action={resetShoppingItem}>
+                        <input type="hidden" name="item_id" value={item.id} />
+                        <input type="hidden" name="redirect_to" value={baseRoute} />
+                        <button className="button ghost small" type="submit">Voltar à lista</button>
+                      </form>
+                      <form action={deleteShoppingItem}>
+                        <input type="hidden" name="item_id" value={item.id} />
+                        <input type="hidden" name="redirect_to" value={baseRoute} />
+                        <button className="button danger small" type="submit">Excluir</button>
+                      </form>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+
+                {paidBy ? (
+                  <div className="purchase-payer">
+                    <div>
+                      <span>Pago por</span>
+                      <strong>{paidBy.name}</strong>
+                    </div>
+                    <div>
+                      <span>PIX para reembolso</span>
+                      <strong>{paidBy.pix_key ?? "Chave PIX não cadastrada"}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="note" style={{ padding: "0 20px" }}>
+                    Compra antiga, registrada antes do recurso de rateio.
+                  </p>
+                )}
+
+                {shares.length > 0 && (
+                  <div className="purchase-shares">
+                    {shares.map((share) => {
+                      const member = Array.isArray(share.member) ? share.member[0] : share.member;
+                      const isPayerShare = share.member_id === item.paid_by_member_id;
+                      const hasReceipt = Boolean(share.receipt_path);
+                      const isConfirmed = share.payment_status === "paid";
+                      return (
+                        <div className="purchase-share" key={share.id}>
+                          <div className="item-title">
+                            <strong>{member?.name ?? "Morador"}</strong>
+                            <small>{isPayerShare ? "Parte de quem pagou" : `Deve a ${paidBy?.name ?? "quem pagou"}`}</small>
+                          </div>
+                          <div className="item-value">
+                            <strong>{currency.format(Number(share.amount))}</strong>
+                            <small>parte individual</small>
+                          </div>
+                          <span className={`status-pill ${isConfirmed ? "success" : hasReceipt ? "info" : "warning"}`}>
+                            {isConfirmed ? "Quitado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
+                          </span>
+
+                          {!isPayerShare && share.member_id === profile.member_id && !isConfirmed && !hasReceipt && (
+                            <AttachmentUploadForm
+                              action={uploadShoppingShareReceipt}
+                              hiddenFields={{ share_id: share.id }}
+                              redirectTo={baseRoute}
+                              label="Enviar comprovante"
+                            />
+                          )}
+
+                          {hasReceipt && (
+                            <div className="purchase-proof-actions">
+                              {share.receipt_url && (
+                                <div className="attachment-row">
+                                  <a href={share.receipt_url} target="_blank" rel="noreferrer">
+                                    Ver {share.receipt_name ?? "comprovante"}
+                                  </a>
+                                </div>
+                              )}
+                              {!isPayerShare && canConfirm && !isConfirmed && (
+                                <form action={confirmShoppingSharePayment}>
+                                  <input type="hidden" name="share_id" value={share.id} />
+                                  <input type="hidden" name="redirect_to" value={baseRoute} />
+                                  <button className="button secondary small" type="submit">Confirmar Pix</button>
+                                </form>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       </section>
     </>

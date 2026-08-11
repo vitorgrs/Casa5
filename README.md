@@ -392,3 +392,28 @@ Resend, se houver. Prováveis causas de nenhum e-mail ter chegado ainda:
 
 Use o botão de teste manual primeiro — ele vai dizer exatamente qual desses
 casos está acontecendo.
+
+## Atualização: rateio das compras da lista
+
+Antes de publicar esta versão, rode no Supabase SQL Editor, depois da migração
+004:
+
+```text
+supabase/migrations/005_shopping_splits.sql
+```
+
+A migração adiciona o pagador e o tipo da compra (`Casa toda`, `Grupo` ou
+`Individual`), cria as parcelas por participante e as funções protegidas de
+registro, envio de comprovante e confirmação do Pix.
+
+No fluxo **Organização → Lista de compras → Lançar compra**:
+
+1. Informe quantidade, valor unitário e quem pagou.
+2. Escolha se a compra é geral, de um grupo ou individual.
+3. Nas compras de grupo/individuais, selecione quem participa.
+4. O sistema divide o total em centavos, já quita a parte do pagador quando
+   ele participa e cria dívida para os demais.
+5. Cada devedor vê na **Minha página** o valor, o nome e a chave PIX de quem
+   pagou, podendo enviar um comprovante em PDF ou foto.
+6. O pagador (ou quem gerencia compras) confere o arquivo em **Organização**
+   e confirma o Pix.

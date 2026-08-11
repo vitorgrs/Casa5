@@ -1,10 +1,18 @@
 import Link from "next/link";
+import { AttachmentUploadForm } from "@/components/attachment-upload-form";
 import { StatusPill } from "@/components/status-pill";
 import { CalendarIcon, ChecklistIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import { requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
+import { signedReceiptUrl } from "@/lib/storage";
+import { uploadShoppingShareReceipt } from "@/app/app/organizacao/actions";
 
-export default async function MyPage() {
+export default async function MyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ success?: string }>;
+}) {
+  const params = await searchParams;
   const { profile, supabase } = await requireActiveProfile();
 
   if (!profile.member_id) {
@@ -31,6 +39,8 @@ export default async function MyPage() {
     { data: reimbursements },
     { data: choreRotation },
     { data: myTasks },
+    { data: shoppingShares },
+    { data: shoppingPaidByMe },
   ] = await Promise.all([
     supabase
       .from("expense_shares")
@@ -55,6 +65,18 @@ export default async function MyPage() {
       .select("id,done,task:tasks(id,title,description,due_date,scope)")
       .eq("member_id", memberId)
       .order("id"),
+    supabase
+      .from("shopping_item_shares")
+      .select(
+        "id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,item:shopping_items(id,name,category,bought_at,paid_by_member_id,paid_by:household_members!shopping_items_paid_by_member_id_fkey(id,name,pix_key))",
+      )
+      .eq("member_id", memberId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("shopping_items")
+      .select("id,shopping_item_shares(member_id,amount,payment_status)")
+      .eq("paid_by_member_id", memberId)
+      .eq("status", "bought"),
   ]);
 
   const shareRows = (shares ?? []).filter((s) => s.expense);
@@ -68,8 +90,29 @@ export default async function MyPage() {
   const sortedMonths = Array.from(grouped.keys()).sort().reverse();
 
   const unpaid = shareRows.filter((s) => !["paid", "waived"].includes(s.payment_status));
-  const totalUnpaid = unpaid.reduce((sum, s) => sum + asNumber(s.amount), 0);
+  const myShoppingShares = await Promise.all(
+    (shoppingShares ?? [])
+      .filter((share) => {
+        const item = Array.isArray(share.item) ? share.item[0] : share.item;
+        return item && item.paid_by_member_id !== memberId;
+      })
+      .map(async (share) => ({
+        ...share,
+        receipt_url: await signedReceiptUrl(supabase, share.receipt_path),
+      })),
+  );
+  const unpaidShoppingShares = myShoppingShares.filter(
+    (share) => !["paid", "waived"].includes(share.payment_status),
+  );
+  const totalUnpaid =
+    unpaid.reduce((sum, s) => sum + asNumber(s.amount), 0)
+    + unpaidShoppingShares.reduce((sum, share) => sum + asNumber(share.amount), 0);
+  const totalUnpaidCount = unpaid.length + unpaidShoppingShares.length;
   const pendingReimbursements = (reimbursements ?? []).filter((r) => r.reimbursement_status === "pending");
+  const pendingShoppingReceivables = (shoppingPaidByMe ?? [])
+    .flatMap((item) => item.shopping_item_shares ?? [])
+    .filter((share) => share.member_id !== memberId && share.payment_status !== "paid");
+  const pendingReceivableCount = pendingReimbursements.length + pendingShoppingReceivables.length;
 
   const openTasks = (myTasks ?? []).filter((t) => !t.done && t.task);
   const casaTasks = openTasks.filter((t) => {
@@ -91,6 +134,8 @@ export default async function MyPage() {
         </div>
       </div>
 
+      {params.success && <div className="message success">{params.success}</div>}
+
       <div className="grid cols-3">
         <div className="card metric-card">
           <div className="metric-top">
@@ -98,14 +143,14 @@ export default async function MyPage() {
             <span className="metric-icon"><WalletIcon /></span>
           </div>
           <strong className="metric-value">{currency.format(totalUnpaid)}</strong>
-          <span className="metric-foot warn">{unpaid.length} parcela(s) em aberto</span>
+          <span className="metric-foot warn">{totalUnpaidCount} parcela(s) em aberto</span>
         </div>
         <div className="card metric-card">
           <div className="metric-top">
             <span>Reembolsos a receber</span>
             <span className="metric-icon"><WalletIcon /></span>
           </div>
-          <strong className="metric-value">{pendingReimbursements.length}</strong>
+          <strong className="metric-value">{pendingReceivableCount}</strong>
           <span className="metric-foot">pendente(s) de pagamento</span>
         </div>
         <div className="card metric-card">
@@ -119,6 +164,78 @@ export default async function MyPage() {
       </div>
 
       <div className="grid" style={{ marginTop: 16 }}>
+        <section className="card">
+          <div className="card-head">
+            <div>
+              <h2>Compras que você precisa reembolsar</h2>
+              <span className="muted-text" style={{ fontSize: 10 }}>
+                Faça o Pix para quem pagou e envie o comprovante por aqui.
+              </span>
+            </div>
+            <WalletIcon />
+          </div>
+          <div className="purchase-list">
+            {myShoppingShares.length === 0 && (
+              <div className="empty">Você não possui débitos de compras.</div>
+            )}
+            {myShoppingShares.map((share) => {
+              const item = Array.isArray(share.item) ? share.item[0] : share.item;
+              const paidBy = Array.isArray(item?.paid_by) ? item?.paid_by[0] : item?.paid_by;
+              const hasReceipt = Boolean(share.receipt_path);
+              const isConfirmed = share.payment_status === "paid";
+              return (
+                <article className="purchase-card" key={share.id}>
+                  <div className="purchase-summary personal-purchase-summary">
+                    <div className="item-title">
+                      <strong>{item?.name ?? "Compra"}</strong>
+                      <small>
+                        {item?.category ?? "Sem categoria"}
+                        {item?.bought_at ? ` • ${new Date(item.bought_at).toLocaleDateString("pt-BR")}` : ""}
+                      </small>
+                    </div>
+                    <div className="item-value">
+                      <strong>{currency.format(asNumber(share.amount))}</strong>
+                      <small>você deve</small>
+                    </div>
+                    <span className={`status-pill ${isConfirmed ? "success" : hasReceipt ? "info" : "warning"}`}>
+                      {isConfirmed ? "Quitado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
+                    </span>
+                  </div>
+                  <div className="purchase-payer">
+                    <div>
+                      <span>Enviar para</span>
+                      <strong>{paidBy?.name ?? "Pagador não informado"}</strong>
+                    </div>
+                    <div>
+                      <span>Chave PIX</span>
+                      <strong>{paidBy?.pix_key ?? "Chave PIX não cadastrada"}</strong>
+                    </div>
+                  </div>
+                  {!isConfirmed && !hasReceipt && (
+                    <div style={{ padding: "4px 16px 14px" }}>
+                      <AttachmentUploadForm
+                        action={uploadShoppingShareReceipt}
+                        hiddenFields={{ share_id: share.id }}
+                        redirectTo="/app/eu"
+                        label="Enviar comprovante"
+                      />
+                    </div>
+                  )}
+                  {hasReceipt && share.receipt_url && (
+                    <div style={{ padding: "12px 16px" }}>
+                      <div className="attachment-row">
+                        <a href={share.receipt_url} target="_blank" rel="noreferrer">
+                          Ver {share.receipt_name ?? "comprovante enviado"}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
         <section className="card">
           <div className="card-head">
             <div>
