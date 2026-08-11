@@ -439,3 +439,18 @@ Os débitos de compras também são compensados por dupla de moradores. Exemplo:
 se você deve R$ 50,00 ao Patrick e ele deve R$ 25,00 a você, a **Minha página**
 explica os dois valores e pede um Pix de apenas R$ 25,00. Um único comprovante
 quita as dívidas usadas nessa compensação depois da confirmação do recebedor.
+
+## Atualização: retirar item de uma compra lançada
+
+Depois da migração 006, rode:
+
+```text
+supabase/migrations/007_remove_item_from_purchase.sql
+```
+
+Cada item de uma compra registrada passa a ter a ação **Retirar da compra**.
+O item volta para a lista, o total é recalculado e o rateio dos itens restantes
+é atualizado automaticamente. Se era o único item, a compra é encerrada.
+
+Por segurança, o sistema não permite alterar a composição da compra quando já
+existe comprovante pendente ou pagamento confirmado de algum participante.

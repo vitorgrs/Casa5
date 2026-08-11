@@ -256,6 +256,24 @@ export async function resetShoppingPurchase(formData: FormData) {
   redirect(returnTo);
 }
 
+export async function removeItemFromShoppingPurchase(formData: FormData) {
+  const returnTo = destination(formData, "/app/organizacao");
+  const { supabase } = await requirePermission("manage_shopping");
+  const purchaseId = String(formData.get("purchase_id") ?? "");
+  const itemId = String(formData.get("item_id") ?? "");
+  if (!purchaseId || !itemId) throw new Error("Compra ou item não informado.");
+
+  const { error } = await supabase.rpc("remove_item_from_shopping_purchase", {
+    target_purchase_id: purchaseId,
+    target_item_id: itemId,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/app/organizacao");
+  revalidatePath("/app/eu");
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Item retirado e rateio recalculado.")}`);
+}
+
 export async function deleteShoppingItem(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
   const { profile, supabase } = await requirePermission("manage_shopping");

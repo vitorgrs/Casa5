@@ -1706,7 +1706,9 @@ textarea {
 }
 .purchase-items-breakdown div {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 9px 10px;
   border: 1px solid var(--line);
@@ -1715,6 +1717,12 @@ textarea {
 }
 .purchase-items-breakdown span {
   color: var(--muted);
+}
+.purchase-items-breakdown form {
+  width: 100%;
+}
+.purchase-items-breakdown form .button {
+  width: 100%;
 }
 .purchase-payer {
   display: grid;

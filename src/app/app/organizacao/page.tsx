@@ -9,6 +9,7 @@ import {
   confirmShoppingNetPayment,
   createTask,
   deleteTask,
+  removeItemFromShoppingPurchase,
   resetShoppingPurchase,
   toggleTaskAssignee,
 } from "./actions";
@@ -339,6 +340,14 @@ export default async function OrganizacaoPage({
                       <strong>
                         {item.quantity_bought ?? "—"} × {currency.format(Number(item.unit_price ?? 0))}
                       </strong>
+                      {canManageShopping && (
+                        <form action={removeItemFromShoppingPurchase}>
+                          <input type="hidden" name="purchase_id" value={purchase.id} />
+                          <input type="hidden" name="item_id" value={item.id} />
+                          <input type="hidden" name="redirect_to" value={baseRoute} />
+                          <button className="button danger small" type="submit">Retirar da compra</button>
+                        </form>
+                      )}
                     </div>
                   ))}
                 </div>
