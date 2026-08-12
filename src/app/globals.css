@@ -1783,6 +1783,24 @@ textarea {
   gap: 8px;
   flex-wrap: wrap;
 }
+.pending-payment-guidance {
+  display: grid;
+  gap: 3px;
+  flex: 1 0 100%;
+  padding: 9px 10px;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  border-radius: 10px;
+  background: rgba(34, 211, 238, 0.045);
+}
+.pending-payment-guidance strong {
+  color: #bae6fd;
+  font-size: 10px;
+}
+.pending-payment-guidance span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
 .purchase-share .status-pill,
 .personal-purchase-summary .status-pill {
   white-space: nowrap;

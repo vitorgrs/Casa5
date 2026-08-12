@@ -598,11 +598,19 @@ export default async function MyPage({
                           </a>
                         )}
                       </div>
-                      {account.net < 0 && (
+                      <div className="pending-payment-guidance">
+                        <strong>Aguardando confirmação deste pagamento.</strong>
+                        <span>
+                          {account.remainingNet > 0
+                            ? `Depois de confirmar, será liberado outro comprovante para o saldo restante de ${currency.format(account.remainingNet)}.`
+                            : "Depois de confirmar, este acerto será totalmente quitado."}
+                        </span>
+                      </div>
+                      {(account.net < 0 || profile.role === "admin") && (
                         <ShoppingPaymentConfirmationForm
                           paymentId={pendingPayment.id}
                           redirectTo="/app/eu"
-                          label="Confirmar pagamento"
+                          label={profile.role === "admin" ? "Confirmar como administrador" : "Confirmar pagamento"}
                         />
                       )}
                     </div>
@@ -751,6 +759,14 @@ export default async function MyPage({
                               Ver {account.pendingPayment.receipt_name ?? "comprovante"}
                             </a>
                           )}
+                        </div>
+                        <div className="pending-payment-guidance">
+                          <strong>Aguardando confirmação deste pagamento.</strong>
+                          <span>
+                            {account.remainingNet > 0
+                              ? `Ao confirmar, será possível anexar outro comprovante para os ${currency.format(account.remainingNet)} restantes.`
+                              : "Ao confirmar, este acerto será totalmente quitado."}
+                          </span>
                         </div>
                         <ShoppingPaymentConfirmationForm
                           paymentId={account.pendingPayment.id}
