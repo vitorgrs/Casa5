@@ -538,3 +538,17 @@ detalhes. Ele mostra as compras que formam o saldo, quem pagou, a data, todos os
 itens com quantidade e valor unitário, a divisão completa entre os moradores e
 o cálculo da compensação até chegar ao valor final a pagar ou receber. A mesma
 visualização está disponível no painel administrativo dos acertos.
+
+## Correção: confirmação de pagamento parcial
+
+Depois da migração 012, rode também:
+
+```text
+supabase/migrations/013_fix_partial_shopping_payment.sql
+```
+
+Ao confirmar um comprovante com valor menor que o saldo devido, somente o valor
+informado é baixado e registrado em **Fechados**. O restante permanece em
+**Em aberto** para receber outro comprovante. A compensação das dívidas nos dois
+sentidos só é encerrada automaticamente quando o pagamento completa o saldo
+líquido.
