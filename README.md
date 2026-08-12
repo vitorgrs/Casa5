@@ -552,3 +552,14 @@ informado é baixado e registrado em **Fechados**. O restante permanece em
 **Em aberto** para receber outro comprovante. A compensação das dívidas nos dois
 sentidos só é encerrada automaticamente quando o pagamento completa o saldo
 líquido.
+
+Se o banco retornar `column reference "debtor_member_id" is ambiguous`, rode a
+correção seguinte:
+
+```text
+supabase/migrations/014_fix_ambiguous_shopping_payment_columns.sql
+```
+
+Essa migração mantém o fluxo de pagamentos parciais e substitui as variáveis
+conflitantes da função por nomes que não podem ser confundidos com as colunas
+da tabela.
