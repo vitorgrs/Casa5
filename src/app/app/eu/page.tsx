@@ -16,6 +16,31 @@ import {
   type SettlementDetails,
 } from "./settlement-details-modal";
 
+type SettlementMember = {
+  id: string;
+  name: string;
+  pix_key: string | null;
+};
+
+type SettlementPaymentRow = {
+  id: string;
+  debtor_member_id: string;
+  creditor_member_id: string;
+  amount: number | string;
+  payment_kind: "pix" | "compensation";
+  status: "pending" | "confirmed";
+  receipt_path: string | null;
+  receipt_name: string | null;
+  submitted_at: string;
+  confirmed_at: string | null;
+  debtor: SettlementMember | SettlementMember[] | null;
+  creditor: SettlementMember | SettlementMember[] | null;
+};
+
+type SettlementPaymentWithReceipt = SettlementPaymentRow & {
+  receiptUrl: string | null;
+};
+
 export default async function MyPage({
   searchParams,
 }: {
@@ -97,7 +122,7 @@ export default async function MyPage({
   ]);
 
   let adminPendingShoppingShares: Array<Record<string, any>> = [];
-  let adminSettlementPayments: Array<Record<string, any>> = [];
+  let adminSettlementPayments: SettlementPaymentRow[] = [];
   if (profile.role === "admin") {
     const [{ data: pendingShares }, { data: settlementPayments }] = await Promise.all([
       supabase
@@ -114,7 +139,7 @@ export default async function MyPage({
         .order("submitted_at", { ascending: false }),
     ]);
     adminPendingShoppingShares = (pendingShares ?? []) as Array<Record<string, any>>;
-    adminSettlementPayments = (settlementPayments ?? []) as Array<Record<string, any>>;
+    adminSettlementPayments = (settlementPayments ?? []) as unknown as SettlementPaymentRow[];
   }
 
   const shareRows = (shares ?? []).filter((s) => s.expense);
@@ -180,8 +205,8 @@ export default async function MyPage({
       participants,
     };
   };
-  const personalPaymentRows = await Promise.all(
-    (personalSettlementPayments ?? []).map(async (payment) => ({
+  const personalPaymentRows: SettlementPaymentWithReceipt[] = await Promise.all(
+    ((personalSettlementPayments ?? []) as unknown as SettlementPaymentRow[]).map(async (payment) => ({
       ...payment,
       receiptUrl: await signedReceiptUrl(supabase, payment.receipt_path),
     })),
@@ -192,7 +217,7 @@ export default async function MyPage({
   const personalClosedPayments = personalPaymentRows.filter(
     (payment) => payment.status === "confirmed",
   );
-  const adminPaymentRows = await Promise.all(
+  const adminPaymentRows: SettlementPaymentWithReceipt[] = await Promise.all(
     adminSettlementPayments.map(async (payment) => ({
       ...payment,
       receiptUrl: await signedReceiptUrl(supabase, payment.receipt_path),
