@@ -1808,6 +1808,224 @@ textarea {
   color: #c4b5fd;
   line-height: 1.55;
 }
+.settlement-clickable {
+  min-width: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+.settlement-clickable:hover {
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.35);
+  transform: translateY(-1px);
+}
+.settlement-clickable:focus-visible {
+  outline: 2px solid var(--violet-2);
+  outline-offset: 3px;
+}
+.settlement-detail-hint {
+  display: block;
+  margin-top: -1px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  color: var(--violet-2);
+  background: rgba(139, 92, 246, 0.045);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: right;
+}
+.settlement-clickable .net-account-card {
+  border-radius: 14px 14px 0 0;
+}
+.settlement-details-modal {
+  width: min(880px, 100%);
+  max-height: min(90vh, 920px);
+  overflow-y: auto;
+  align-content: start;
+  border-color: rgba(167, 139, 250, 0.32);
+}
+.settlement-modal-head,
+.settlement-section-head,
+.settlement-purchase-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settlement-modal-head h3 {
+  margin-top: 5px;
+}
+.settlement-detail-sections,
+.settlement-purchase-list {
+  display: grid;
+  gap: 12px;
+}
+.settlement-detail-section {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.018);
+}
+.settlement-section-head {
+  align-items: center;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(139, 92, 246, 0.055);
+}
+.settlement-section-head h4,
+.settlement-calculation h4 {
+  margin: 0;
+  font-size: 12px;
+}
+.settlement-section-head strong {
+  flex-shrink: 0;
+  color: var(--violet-2);
+  font-size: 13px;
+}
+.settlement-purchase-list {
+  padding: 12px;
+}
+.settlement-purchase-detail {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(7, 10, 18, 0.36);
+}
+.settlement-purchase-head {
+  padding: 12px;
+}
+.settlement-purchase-head strong,
+.settlement-purchase-head small {
+  display: block;
+}
+.settlement-purchase-head small,
+.settlement-purchase-head .item-value small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.settlement-item-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.settlement-item-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, auto) minmax(80px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.settlement-item-row:last-child {
+  border-bottom: 0;
+}
+.settlement-item-row small {
+  color: var(--muted);
+  text-align: right;
+}
+.settlement-item-row strong {
+  text-align: right;
+}
+.settlement-item-list > .muted-text {
+  padding: 12px;
+  font-size: 10px;
+}
+.settlement-share-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.settlement-share-breakdown span {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 9px;
+}
+.settlement-share-breakdown span:last-child {
+  border-right: 0;
+}
+.settlement-share-breakdown strong {
+  color: var(--text);
+  font-size: 11px;
+}
+.settlement-participants {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+.settlement-participants > strong {
+  font-size: 10px;
+}
+.settlement-participant-list {
+  display: grid;
+  gap: 6px;
+}
+.settlement-participant-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) repeat(3, minmax(105px, auto));
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+.settlement-participant-row > span {
+  font-size: 10px;
+  font-weight: 750;
+}
+.settlement-participant-row small {
+  color: var(--muted);
+  font-size: 9px;
+  text-align: right;
+}
+.settlement-participant-row small strong {
+  color: var(--text);
+}
+.settlement-calculation {
+  display: grid;
+  gap: 0;
+  padding: 14px;
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  border-radius: 14px;
+  background: rgba(139, 92, 246, 0.07);
+}
+.settlement-calculation h4 {
+  margin-bottom: 8px;
+}
+.settlement-calculation > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.settlement-calculation > div strong {
+  flex-shrink: 0;
+  color: var(--text);
+}
+.settlement-calculation .settlement-net-line {
+  margin-top: 4px;
+  border-top: 1px solid var(--line-strong);
+}
+.settlement-calculation .settlement-final-line {
+  margin-top: 4px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(167, 139, 250, 0.3);
+  color: #ddd6fe;
+  font-weight: 750;
+}
+.settlement-calculation .settlement-final-line strong {
+  color: var(--violet-2);
+  font-size: 14px;
+}
 
 /* Calendário */
 .calendar-grid {
@@ -2143,6 +2361,42 @@ textarea {
   .purchase-item-value-row,
   .netting-explanation {
     grid-template-columns: 1fr;
+  }
+  .settlement-details-modal {
+    width: calc(100vw - 24px) !important;
+    max-height: 92vh;
+    margin: 12px;
+    padding: 16px;
+  }
+  .settlement-modal-head,
+  .settlement-section-head,
+  .settlement-purchase-head {
+    gap: 10px;
+  }
+  .settlement-item-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .settlement-item-row small {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    text-align: left;
+  }
+  .settlement-share-breakdown,
+  .settlement-participant-row {
+    grid-template-columns: 1fr;
+  }
+  .settlement-share-breakdown span {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .settlement-share-breakdown span:last-child {
+    border-bottom: 0;
+  }
+  .settlement-participant-row small {
+    text-align: left;
+  }
+  .settlement-calculation > div {
+    align-items: flex-start;
   }
   .shopping-select-row {
     grid-template-columns: 1fr auto;

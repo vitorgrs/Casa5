@@ -11,6 +11,10 @@ import {
   settleZeroShoppingBalanceAsAdmin,
   uploadShoppingNetReceipt,
 } from "@/app/app/organizacao/actions";
+import {
+  SettlementDetailsModal,
+  type SettlementDetails,
+} from "./settlement-details-modal";
 
 export default async function MyPage({
   searchParams,
@@ -74,14 +78,14 @@ export default async function MyPage({
     supabase
       .from("shopping_purchase_shares")
       .select(
-        "id,member_id,amount,settled_amount,payment_status,paid_at,purchase:shopping_purchases(id,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
+        "id,member_id,amount,settled_amount,payment_status,paid_at,purchase:shopping_purchases(id,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key)))",
       )
       .eq("member_id", memberId)
       .eq("payment_status", "pending")
       .order("created_at", { ascending: false }),
     supabase
       .from("shopping_purchases")
-      .select("id,shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key))")
+      .select("id,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key))")
       .eq("paid_by_member_id", memberId),
     supabase
       .from("shopping_settlement_payments")
@@ -99,7 +103,7 @@ export default async function MyPage({
       supabase
         .from("shopping_purchase_shares")
         .select(
-          "id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key),purchase:shopping_purchases!inner(id,household_id,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
+          "id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key),purchase:shopping_purchases!inner(id,household_id,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key)))",
         )
         .eq("payment_status", "pending"),
       supabase
@@ -126,6 +130,56 @@ export default async function MyPage({
   const unpaid = shareRows.filter((s) => !["paid", "waived"].includes(s.payment_status));
   const outstandingAmount = (share: Record<string, any>) =>
     Math.max(0, asNumber(share.amount) - asNumber(share.settled_amount));
+  const purchaseDetail = (
+    share: Record<string, any>,
+    debtorName: string,
+  ): SettlementDetails["sections"][number]["purchases"][number] => {
+    const purchase = Array.isArray(share.purchase) ? share.purchase[0] : share.purchase;
+    const paidBy = Array.isArray(purchase?.paid_by) ? purchase.paid_by[0] : purchase?.paid_by;
+    const items = (purchase?.items ?? []).map((item: Record<string, any>) => {
+      const quantity = asNumber(item.quantity_bought);
+      const unitPrice = asNumber(item.unit_price);
+      return {
+        id: String(item.id),
+        name: String(item.name ?? "Item"),
+        quantity,
+        unitPrice,
+        subtotal: Math.round(quantity * unitPrice * 100) / 100,
+      };
+    });
+    const participants = (purchase?.shopping_purchase_shares ?? []).map(
+      (purchaseShare: Record<string, any>) => {
+        const member = Array.isArray(purchaseShare.member)
+          ? purchaseShare.member[0]
+          : purchaseShare.member;
+        const amount = asNumber(purchaseShare.amount);
+        const isClosed = ["paid", "waived"].includes(purchaseShare.payment_status);
+        const settledAmount = isClosed
+          ? amount
+          : Math.min(amount, asNumber(purchaseShare.settled_amount));
+        return {
+          id: String(purchaseShare.id),
+          name: String(member?.name ?? "Morador"),
+          amount,
+          settledAmount,
+          openAmount: Math.max(0, amount - settledAmount),
+        };
+      },
+    );
+
+    return {
+      id: String(purchase?.id ?? share.id),
+      boughtAt: purchase?.bought_at ?? null,
+      payerName: paidBy?.name ?? "Morador",
+      debtorName,
+      purchaseTotal: asNumber(purchase?.total_amount),
+      originalShareAmount: asNumber(share.amount),
+      settledShareAmount: asNumber(share.settled_amount),
+      openShareAmount: outstandingAmount(share),
+      items,
+      participants,
+    };
+  };
   const personalPaymentRows = await Promise.all(
     (personalSettlementPayments ?? []).map(async (payment) => ({
       ...payment,
@@ -187,7 +241,7 @@ export default async function MyPage({
         outgoingShares: [],
         incomingShares: [],
       };
-      account.incomingShares.push(share);
+      account.incomingShares.push({ ...share, purchase });
       accountMap.set(member.id, account);
     }
   }
@@ -213,6 +267,39 @@ export default async function MyPage({
       );
       const pendingPayment = net > 0 ? outgoingPendingPayment : incomingPendingPayment;
       const remainingNet = Math.max(0, Math.abs(net) - asNumber(pendingPayment?.amount));
+      const details: SettlementDetails = {
+        title: `Como foi calculado o acerto com ${account.memberName}`,
+        sections: [
+          {
+            title: `Compras pagas por ${account.memberName} que geraram cobrança para você`,
+            total: grossOutgoing,
+            purchases: account.outgoingShares.map((share) =>
+              purchaseDetail(share, profile.full_name),
+            ),
+          },
+          {
+            title: "Compras pagas por você que reduzem a cobrança",
+            total: grossIncoming,
+            purchases: account.incomingShares.map((share) =>
+              purchaseDetail(share, account.memberName),
+            ),
+          },
+        ],
+        calculation: {
+          firstLabel: `Você deve a ${account.memberName}`,
+          firstAmount: grossOutgoing,
+          secondLabel: `${account.memberName} deve a você`,
+          secondAmount: grossIncoming,
+          netAmount: Math.abs(net),
+          pendingPaymentAmount: asNumber(pendingPayment?.amount),
+          remainingAmount: remainingNet,
+          resultLabel: net > 0
+            ? `Você paga a ${account.memberName}`
+            : net < 0
+              ? `${account.memberName} paga a você`
+              : "Dívidas compensadas",
+        },
+      };
       return {
         ...account,
         grossOutgoing,
@@ -222,6 +309,7 @@ export default async function MyPage({
         representativeShare: account.outgoingShares[0],
         outgoingPendingPayment,
         incomingPendingPayment,
+        details,
       };
     }),
   );
@@ -274,16 +362,52 @@ export default async function MyPage({
           payment.debtor_member_id === debtor.id &&
           payment.creditor_member_id === creditor.id,
       );
+      const netAmount = Math.abs(signedNet);
+      const remainingNet = Math.max(0, netAmount - asNumber(pendingPayment?.amount));
+      const details: SettlementDetails = {
+        title: `Como foi calculado: ${account.firstMember.name} × ${account.secondMember.name}`,
+        sections: [
+          {
+            title: `Compras pagas por ${account.secondMember.name} cobradas de ${account.firstMember.name}`,
+            total: grossFirstOwesSecond,
+            purchases: account.firstOwesSecond.map((share) =>
+              purchaseDetail(share, account.firstMember.name),
+            ),
+          },
+          {
+            title: `Compras pagas por ${account.firstMember.name} cobradas de ${account.secondMember.name}`,
+            total: grossSecondOwesFirst,
+            purchases: account.secondOwesFirst.map((share) =>
+              purchaseDetail(share, account.secondMember.name),
+            ),
+          },
+        ],
+        calculation: {
+          firstLabel: `${account.firstMember.name} deve a ${account.secondMember.name}`,
+          firstAmount: grossFirstOwesSecond,
+          secondLabel: `${account.secondMember.name} deve a ${account.firstMember.name}`,
+          secondAmount: grossSecondOwesFirst,
+          netAmount,
+          pendingPaymentAmount: asNumber(pendingPayment?.amount),
+          remainingAmount: remainingNet,
+          resultLabel: signedNet > 0
+            ? `${account.firstMember.name} paga a ${account.secondMember.name}`
+            : signedNet < 0
+              ? `${account.secondMember.name} paga a ${account.firstMember.name}`
+              : "Dívidas compensadas",
+        },
+      };
       return {
         ...account,
         grossFirstOwesSecond,
         grossSecondOwesFirst,
-        net: Math.abs(signedNet),
-        remainingNet: Math.max(0, Math.abs(signedNet) - asNumber(pendingPayment?.amount)),
+        net: netAmount,
+        remainingNet,
         debtor,
         creditor,
         representativeShare: debtorShares[0],
         pendingPayment,
+        details,
       };
     }),
   );
@@ -368,7 +492,8 @@ export default async function MyPage({
                 ? account.outgoingPendingPayment
                 : account.incomingPendingPayment;
               return (
-                <article className="purchase-card net-account-card" key={account.memberId}>
+                <SettlementDetailsModal key={account.memberId} details={account.details}>
+                <article className="purchase-card net-account-card">
                   <div className="purchase-summary personal-purchase-summary">
                     <div className="item-title">
                       <strong>Acerto com {account.memberName}</strong>
@@ -470,6 +595,7 @@ export default async function MyPage({
                     </div>
                   )}
                 </article>
+                </SettlementDetailsModal>
               );
             })}
           </div>
@@ -534,7 +660,8 @@ export default async function MyPage({
               {adminNetShoppingAccounts.map((account) => {
                 const pairKey = `${account.firstMember.id}:${account.secondMember.id}`;
                 return (
-                  <article className="purchase-card net-account-card" key={pairKey}>
+                  <SettlementDetailsModal key={pairKey} details={account.details}>
+                  <article className="purchase-card net-account-card">
                     <div className="purchase-summary personal-purchase-summary">
                       <div className="item-title">
                         <strong>{account.firstMember.name} × {account.secondMember.name}</strong>
@@ -626,6 +753,7 @@ export default async function MyPage({
                       </form>
                     )}
                   </article>
+                  </SettlementDetailsModal>
                 );
               })}
             </div>

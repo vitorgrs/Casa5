@@ -530,3 +530,11 @@ A migração cria um histórico permanente dos pagamentos, com valor,
 comprovante, pagador, recebedor e data. Ela também recupera comprovantes que já
 existiam nas parcelas antigas, inclusive os pagamentos que haviam desaparecido
 da tela depois de serem marcados como pagos.
+
+## Atualização: detalhamento dos acertos
+
+Na seção **Acertos de compras — em aberto**, cada cartão agora abre um modal de
+detalhes. Ele mostra as compras que formam o saldo, quem pagou, a data, todos os
+itens com quantidade e valor unitário, a divisão completa entre os moradores e
+o cálculo da compensação até chegar ao valor final a pagar ou receber. A mesma
+visualização está disponível no painel administrativo dos acertos.
