@@ -512,3 +512,21 @@ sentidos, o saldo compensado, quem deve pagar e a chave PIX do recebedor. O
 administrador pode anexar o comprovante em nome do devedor e, somente depois
 do arquivo, marcar o acerto como pago. Saldos iguais podem ser encerrados por
 compensação, pois não exigem PIX.
+
+## Atualização: pagamentos parciais e histórico dos acertos
+
+Depois da migração 011, rode:
+
+```text
+supabase/migrations/012_partial_shopping_settlements_history.sql
+```
+
+Os acertos da **Minha página** agora são separados em **Em aberto** e
+**Fechados**. Ao enviar um comprovante, o morador ou administrador informa o
+valor efetivamente pago. Depois da confirmação, somente esse valor é abatido e
+o restante continua em aberto para receber novos pagamentos parciais.
+
+A migração cria um histórico permanente dos pagamentos, com valor,
+comprovante, pagador, recebedor e data. Ela também recupera comprovantes que já
+existiam nas parcelas antigas, inclusive os pagamentos que haviam desaparecido
+da tela depois de serem marcados como pagos.

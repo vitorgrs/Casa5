@@ -298,7 +298,11 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
   const returnTo = destination(formData, "/app/organizacao");
   const { profile, supabase } = await requireActiveProfile();
   const shareId = String(formData.get("share_id") ?? "");
+  const paidAmount = decimal(formData.get("payment_amount"));
   const file = formData.get("file");
+  if (paidAmount === null || paidAmount <= 0) {
+    throw new Error("Informe o valor que foi pago.");
+  }
   if (!(file instanceof File) || file.size === 0) {
     throw new Error("Selecione um arquivo (PDF ou foto) antes de enviar.");
   }
@@ -330,6 +334,7 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
     target_share_id: shareId,
     uploaded_path: uploaded.path,
     uploaded_name: uploaded.name,
+    paid_amount: paidAmount,
   });
   if (error) {
     await deleteFromReceiptBucket(supabase, uploaded.path);
@@ -339,22 +344,25 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
   redirect(
-    `${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante enviado. O pagamento aguarda a confirmação do recebedor ou do administrador.")}`,
+    `${pathOf(returnTo)}?success=${encodeURIComponent(`Comprovante de ${paidAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} enviado. O valor aguarda confirmação e qualquer saldo restante continua em aberto.`)}`,
   );
 }
 
 export async function confirmShoppingNetPayment(formData: FormData) {
   const returnTo = destination(formData, "/app/eu");
   const { supabase } = await requireActiveProfile();
-  const shareId = String(formData.get("share_id") ?? "");
+  const paymentId = String(formData.get("payment_id") ?? "");
+  if (!paymentId) throw new Error("Pagamento não informado.");
   const { error } = await supabase.rpc("confirm_shopping_net_payment", {
-    target_share_id: shareId,
+    target_payment_id: paymentId,
   });
   if (error) throw new Error(error.message);
 
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
-  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Pagamento marcado como pago.")}`);
+  redirect(
+    `${pathOf(returnTo)}?success=${encodeURIComponent("Pagamento confirmado. Se houver saldo restante, ele continua em aberto.")}`,
+  );
 }
 
 export async function settleZeroShoppingBalance(formData: FormData) {

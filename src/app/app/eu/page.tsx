@@ -46,6 +46,7 @@ export default async function MyPage({
     { data: myTasks },
     { data: shoppingShares },
     { data: shoppingPaidByMe },
+    { data: personalSettlementPayments },
   ] = await Promise.all([
     supabase
       .from("expense_shares")
@@ -73,26 +74,43 @@ export default async function MyPage({
     supabase
       .from("shopping_purchase_shares")
       .select(
-        "id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,purchase:shopping_purchases(id,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
+        "id,member_id,amount,settled_amount,payment_status,paid_at,purchase:shopping_purchases(id,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
       )
       .eq("member_id", memberId)
       .eq("payment_status", "pending")
       .order("created_at", { ascending: false }),
     supabase
       .from("shopping_purchases")
-      .select("id,shopping_purchase_shares(id,member_id,amount,payment_status,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name,pix_key))")
-      .eq("paid_by_member_id", memberId)
+      .select("id,shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key))")
+      .eq("paid_by_member_id", memberId),
+    supabase
+      .from("shopping_settlement_payments")
+      .select(
+        "id,debtor_member_id,creditor_member_id,amount,payment_kind,status,receipt_path,receipt_name,submitted_at,confirmed_at,debtor:household_members!shopping_settlement_payments_debtor_member_id_fkey(id,name,pix_key),creditor:household_members!shopping_settlement_payments_creditor_member_id_fkey(id,name,pix_key)",
+      )
+      .or(`debtor_member_id.eq.${memberId},creditor_member_id.eq.${memberId}`)
+      .order("submitted_at", { ascending: false }),
   ]);
 
   let adminPendingShoppingShares: Array<Record<string, any>> = [];
+  let adminSettlementPayments: Array<Record<string, any>> = [];
   if (profile.role === "admin") {
-    const { data } = await supabase
-      .from("shopping_purchase_shares")
-      .select(
-        "id,member_id,amount,payment_status,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name,pix_key),purchase:shopping_purchases!inner(id,household_id,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
-      )
-      .eq("payment_status", "pending");
-    adminPendingShoppingShares = (data ?? []) as Array<Record<string, any>>;
+    const [{ data: pendingShares }, { data: settlementPayments }] = await Promise.all([
+      supabase
+        .from("shopping_purchase_shares")
+        .select(
+          "id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key),purchase:shopping_purchases!inner(id,household_id,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
+        )
+        .eq("payment_status", "pending"),
+      supabase
+        .from("shopping_settlement_payments")
+        .select(
+          "id,debtor_member_id,creditor_member_id,amount,payment_kind,status,receipt_path,receipt_name,submitted_at,confirmed_at,debtor:household_members!shopping_settlement_payments_debtor_member_id_fkey(id,name,pix_key),creditor:household_members!shopping_settlement_payments_creditor_member_id_fkey(id,name,pix_key)",
+        )
+        .order("submitted_at", { ascending: false }),
+    ]);
+    adminPendingShoppingShares = (pendingShares ?? []) as Array<Record<string, any>>;
+    adminSettlementPayments = (settlementPayments ?? []) as Array<Record<string, any>>;
   }
 
   const shareRows = (shares ?? []).filter((s) => s.expense);
@@ -106,6 +124,33 @@ export default async function MyPage({
   const sortedMonths = Array.from(grouped.keys()).sort().reverse();
 
   const unpaid = shareRows.filter((s) => !["paid", "waived"].includes(s.payment_status));
+  const outstandingAmount = (share: Record<string, any>) =>
+    Math.max(0, asNumber(share.amount) - asNumber(share.settled_amount));
+  const personalPaymentRows = await Promise.all(
+    (personalSettlementPayments ?? []).map(async (payment) => ({
+      ...payment,
+      receiptUrl: await signedReceiptUrl(supabase, payment.receipt_path),
+    })),
+  );
+  const personalPendingPayments = personalPaymentRows.filter(
+    (payment) => payment.status === "pending",
+  );
+  const personalClosedPayments = personalPaymentRows.filter(
+    (payment) => payment.status === "confirmed",
+  );
+  const adminPaymentRows = await Promise.all(
+    adminSettlementPayments.map(async (payment) => ({
+      ...payment,
+      receiptUrl: await signedReceiptUrl(supabase, payment.receipt_path),
+    })),
+  );
+  const adminPendingPayments = adminPaymentRows.filter(
+    (payment) => payment.status === "pending",
+  );
+  const adminClosedPayments = adminPaymentRows.filter(
+    (payment) => payment.status === "confirmed",
+  );
+
   type NetAccount = {
     memberId: string;
     memberName: string;
@@ -150,24 +195,33 @@ export default async function MyPage({
   const netShoppingAccounts = await Promise.all(
     Array.from(accountMap.values()).map(async (account) => {
       const grossOutgoing = account.outgoingShares.reduce(
-        (sum, share) => sum + asNumber(share.amount), 0,
+        (sum, share) => sum + outstandingAmount(share), 0,
       );
       const grossIncoming = account.incomingShares.reduce(
-        (sum, share) => sum + asNumber(share.amount), 0,
+        (sum, share) => sum + outstandingAmount(share), 0,
       );
       const net = Math.round((grossOutgoing - grossIncoming) * 100) / 100;
-      const receiptShare = account.outgoingShares.find((share) => share.receipt_path);
-      const incomingReceiptShare = account.incomingShares.find((share) => share.receipt_path);
-      const representativeShare = receiptShare ?? account.outgoingShares[0];
+      const outgoingPendingPayment = personalPendingPayments.find(
+        (payment) =>
+          payment.debtor_member_id === memberId &&
+          payment.creditor_member_id === account.memberId,
+      );
+      const incomingPendingPayment = personalPendingPayments.find(
+        (payment) =>
+          payment.debtor_member_id === account.memberId &&
+          payment.creditor_member_id === memberId,
+      );
+      const pendingPayment = net > 0 ? outgoingPendingPayment : incomingPendingPayment;
+      const remainingNet = Math.max(0, Math.abs(net) - asNumber(pendingPayment?.amount));
       return {
         ...account,
         grossOutgoing,
         grossIncoming,
         net,
-        representativeShare,
-        receiptUrl: await signedReceiptUrl(supabase, receiptShare?.receipt_path ?? null),
-        incomingReceiptShare,
-        incomingReceiptUrl: await signedReceiptUrl(supabase, incomingReceiptShare?.receipt_path ?? null),
+        remainingNet,
+        representativeShare: account.outgoingShares[0],
+        outgoingPendingPayment,
+        incomingPendingPayment,
       };
     }),
   );
@@ -204,35 +258,42 @@ export default async function MyPage({
   const adminNetShoppingAccounts = await Promise.all(
     Array.from(adminPairMap.values()).map(async (account) => {
       const grossFirstOwesSecond = account.firstOwesSecond.reduce(
-        (sum, share) => sum + asNumber(share.amount),
+        (sum, share) => sum + outstandingAmount(share),
         0,
       );
       const grossSecondOwesFirst = account.secondOwesFirst.reduce(
-        (sum, share) => sum + asNumber(share.amount),
+        (sum, share) => sum + outstandingAmount(share),
         0,
       );
       const signedNet = Math.round((grossFirstOwesSecond - grossSecondOwesFirst) * 100) / 100;
       const debtor = signedNet >= 0 ? account.firstMember : account.secondMember;
       const creditor = signedNet >= 0 ? account.secondMember : account.firstMember;
       const debtorShares = signedNet >= 0 ? account.firstOwesSecond : account.secondOwesFirst;
-      const receiptShare = debtorShares.find((share) => share.receipt_path);
-      const representativeShare = receiptShare ?? debtorShares[0];
+      const pendingPayment = adminPendingPayments.find(
+        (payment) =>
+          payment.debtor_member_id === debtor.id &&
+          payment.creditor_member_id === creditor.id,
+      );
       return {
         ...account,
         grossFirstOwesSecond,
         grossSecondOwesFirst,
         net: Math.abs(signedNet),
+        remainingNet: Math.max(0, Math.abs(signedNet) - asNumber(pendingPayment?.amount)),
         debtor,
         creditor,
-        representativeShare,
-        receiptUrl: await signedReceiptUrl(supabase, receiptShare?.receipt_path ?? null),
+        representativeShare: debtorShares[0],
+        pendingPayment,
       };
     }),
   );
   const totalUnpaid =
     unpaid.reduce((sum, s) => sum + asNumber(s.amount), 0)
-    + netShoppingAccounts.filter((account) => account.net > 0).reduce((sum, account) => sum + account.net, 0);
-  const totalUnpaidCount = unpaid.length + netShoppingAccounts.filter((account) => account.net > 0).length;
+    + netShoppingAccounts
+      .filter((account) => account.net > 0)
+      .reduce((sum, account) => sum + account.remainingNet, 0);
+  const totalUnpaidCount = unpaid.length
+    + netShoppingAccounts.filter((account) => account.net > 0 && account.remainingNet > 0).length;
   const pendingReimbursements = (reimbursements ?? []).filter((r) => r.reimbursement_status === "pending");
   const pendingReceivableCount = pendingReimbursements.length
     + netShoppingAccounts.filter((account) => account.net < 0).length;
@@ -290,7 +351,7 @@ export default async function MyPage({
         <section className="card">
           <div className="card-head">
             <div>
-              <h2>Acertos de compras entre moradores</h2>
+              <h2>Acertos de compras — em aberto</h2>
               <span className="muted-text" style={{ fontSize: 10 }}>
                 Envie o comprovante por aqui. O recebedor ou o administrador
                 só poderá marcar como pago depois que o arquivo for anexado.
@@ -303,9 +364,9 @@ export default async function MyPage({
               <div className="empty">Você não possui acertos de compras pendentes.</div>
             )}
             {netShoppingAccounts.map((account) => {
-              const hasReceipt = Boolean(account.representativeShare?.receipt_path);
-              const hasIncomingReceipt = Boolean(account.incomingReceiptShare?.receipt_path);
-              const netAmount = Math.abs(account.net);
+              const pendingPayment = account.net > 0
+                ? account.outgoingPendingPayment
+                : account.incomingPendingPayment;
               return (
                 <article className="purchase-card net-account-card" key={account.memberId}>
                   <div className="purchase-summary personal-purchase-summary">
@@ -314,11 +375,11 @@ export default async function MyPage({
                       <small>Compensação automática das dívidas nos dois sentidos</small>
                     </div>
                     <div className="item-value">
-                      <strong>{currency.format(netAmount)}</strong>
-                      <small>{account.net > 0 ? "você paga" : account.net < 0 ? "você recebe" : "saldo final"}</small>
+                      <strong>{currency.format(account.remainingNet)}</strong>
+                      <small>{account.net > 0 ? "ainda falta pagar" : account.net < 0 ? "ainda falta receber" : "saldo final"}</small>
                     </div>
-                    <span className={`status-pill ${account.net < 0 ? hasIncomingReceipt ? "info" : "success" : account.net === 0 ? "violet" : hasReceipt ? "info" : "warning"}`}>
-                      {account.net < 0 ? hasIncomingReceipt ? "Comprovante recebido" : "A receber" : account.net === 0 ? "Compensado" : hasReceipt ? "Aguardando confirmação" : "PIX pendente"}
+                    <span className={`status-pill ${account.net === 0 ? "violet" : pendingPayment ? "info" : "warning"}`}>
+                      {account.net === 0 ? "Compensação total" : pendingPayment ? "Aguardando confirmação" : "Em aberto"}
                     </span>
                   </div>
 
@@ -327,9 +388,13 @@ export default async function MyPage({
                     <span>{account.memberName} deve a você: <strong>{currency.format(account.grossIncoming)}</strong></span>
                     <p>
                       {account.net > 0
-                        ? `Como os dois possuem dívidas, subtraímos ${currency.format(account.grossIncoming)} de ${currency.format(account.grossOutgoing)}. Você só precisa pagar ${currency.format(account.net)}.`
+                        ? pendingPayment
+                          ? `O saldo líquido era ${currency.format(account.net)}. Foi informado um pagamento de ${currency.format(asNumber(pendingPayment.amount))}; restam ${currency.format(account.remainingNet)} em aberto enquanto o comprovante aguarda confirmação.`
+                          : `Como os dois possuem dívidas, subtraímos ${currency.format(account.grossIncoming)} de ${currency.format(account.grossOutgoing)}. Você precisa pagar ${currency.format(account.net)}.`
                         : account.net < 0
-                          ? `Como os dois possuem dívidas, subtraímos ${currency.format(account.grossOutgoing)} de ${currency.format(account.grossIncoming)}. ${account.memberName} só precisa pagar ${currency.format(Math.abs(account.net))} a você.`
+                          ? pendingPayment
+                            ? `${account.memberName} informou um pagamento de ${currency.format(asNumber(pendingPayment.amount))}. Depois desse valor, ainda restam ${currency.format(account.remainingNet)} para você receber.`
+                            : `Como os dois possuem dívidas, subtraímos ${currency.format(account.grossOutgoing)} de ${currency.format(account.grossIncoming)}. ${account.memberName} precisa pagar ${currency.format(Math.abs(account.net))} a você.`
                           : "As dívidas têm o mesmo valor e se compensam totalmente. Ninguém precisa fazer Pix."}
                     </p>
                   </div>
@@ -355,46 +420,43 @@ export default async function MyPage({
                       </div>
                       <div>
                         <span>Valor líquido a receber</span>
-                        <strong>{currency.format(Math.abs(account.net))}</strong>
+                        <strong>{currency.format(account.remainingNet)}</strong>
                       </div>
                     </div>
                   )}
 
-                  {account.net > 0 && account.representativeShare && !hasReceipt && (
+                  {account.net > 0 && account.representativeShare && !pendingPayment && (
                     <div style={{ padding: "4px 16px 14px" }}>
                       <AttachmentUploadForm
                         action={uploadShoppingNetReceipt}
                         hiddenFields={{ share_id: account.representativeShare.id }}
                         redirectTo="/app/eu"
                         label="Enviar comprovante do PIX"
+                        paymentAmount={{
+                          defaultValue: account.remainingNet,
+                          max: account.remainingNet,
+                        }}
                       />
                     </div>
                   )}
 
-                  {hasReceipt && account.receiptUrl && (
-                    <div style={{ padding: "12px 16px" }}>
-                      <div className="attachment-row">
-                        <a href={account.receiptUrl} target="_blank" rel="noreferrer">
-                          Ver {account.representativeShare?.receipt_name ?? "comprovante enviado"}
-                        </a>
-                      </div>
-                    </div>
-                  )}
-
-                  {account.net < 0 && hasIncomingReceipt && (
+                  {pendingPayment && (
                     <div className="purchase-proof-actions" style={{ padding: "12px 16px" }}>
-                      {account.incomingReceiptUrl && (
-                        <div className="attachment-row">
-                          <a href={account.incomingReceiptUrl} target="_blank" rel="noreferrer">
-                            Ver {account.incomingReceiptShare?.receipt_name ?? "comprovante recebido"}
+                      <div className="attachment-row">
+                        <span>📎 Pagamento informado: {currency.format(asNumber(pendingPayment.amount))}</span>
+                        {pendingPayment.receiptUrl && (
+                          <a href={pendingPayment.receiptUrl} target="_blank" rel="noreferrer">
+                            Ver {pendingPayment.receipt_name ?? "comprovante"}
                           </a>
-                        </div>
+                        )}
+                      </div>
+                      {account.net < 0 && (
+                        <form action={confirmShoppingNetPayment}>
+                          <input type="hidden" name="payment_id" value={pendingPayment.id} />
+                          <input type="hidden" name="redirect_to" value="/app/eu" />
+                          <button className="button secondary small" type="submit">Confirmar pagamento</button>
+                        </form>
                       )}
-                      <form action={confirmShoppingNetPayment}>
-                        <input type="hidden" name="share_id" value={account.incomingReceiptShare?.id} />
-                        <input type="hidden" name="redirect_to" value="/app/eu" />
-                        <button className="button secondary small" type="submit">Marcar como pago</button>
-                      </form>
                     </div>
                   )}
 
@@ -411,13 +473,53 @@ export default async function MyPage({
               );
             })}
           </div>
+
+          <details className="details-editor" style={{ margin: "0 20px 16px" }}>
+            <summary>Fechados ({personalClosedPayments.length})</summary>
+            <div className="editor-body purchase-list">
+              {personalClosedPayments.length === 0 && (
+                <div className="empty">Nenhum acerto fechado encontrado.</div>
+              )}
+              {personalClosedPayments.map((payment) => {
+                const debtor = Array.isArray(payment.debtor) ? payment.debtor[0] : payment.debtor;
+                const creditor = Array.isArray(payment.creditor) ? payment.creditor[0] : payment.creditor;
+                return (
+                  <article className="purchase-card" key={payment.id}>
+                    <div className="purchase-summary personal-purchase-summary">
+                      <div className="item-title">
+                        <strong>{debtor?.name ?? "Morador"} → {creditor?.name ?? "Morador"}</strong>
+                        <small>
+                          Fechado em {new Date(payment.confirmed_at ?? payment.submitted_at).toLocaleDateString("pt-BR")}
+                        </small>
+                      </div>
+                      <div className="item-value">
+                        <strong>
+                          {payment.payment_kind === "compensation"
+                            ? "Sem PIX"
+                            : currency.format(asNumber(payment.amount))}
+                        </strong>
+                        <small>{payment.payment_kind === "compensation" ? "compensação" : "valor pago"}</small>
+                      </div>
+                      <span className="status-pill success">Pago</span>
+                    </div>
+                    {payment.receiptUrl && (
+                      <div className="attachment-row" style={{ margin: "0 16px 14px" }}>
+                        <span>📎 {payment.receipt_name ?? "comprovante"}</span>
+                        <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Ver</a>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </details>
         </section>
 
         {profile.role === "admin" && (
           <section className="card">
             <div className="card-head">
               <div>
-                <h2>Administração dos acertos de todos</h2>
+                <h2>Administração dos acertos — em aberto</h2>
                 <span className="muted-text" style={{ fontSize: 10 }}>
                   Veja quem deve pagar, anexe o comprovante pelo morador e
                   marque como pago somente depois do arquivo.
@@ -430,7 +532,6 @@ export default async function MyPage({
                 <div className="empty">Nenhum acerto entre moradores está pendente.</div>
               )}
               {adminNetShoppingAccounts.map((account) => {
-                const hasReceipt = Boolean(account.representativeShare?.receipt_path);
                 const pairKey = `${account.firstMember.id}:${account.secondMember.id}`;
                 return (
                   <article className="purchase-card net-account-card" key={pairKey}>
@@ -440,11 +541,11 @@ export default async function MyPage({
                         <small>Visão administrativa do saldo líquido</small>
                       </div>
                       <div className="item-value">
-                        <strong>{currency.format(account.net)}</strong>
-                        <small>{account.net > 0 ? `${account.debtor.name} paga` : "saldo compensado"}</small>
+                        <strong>{currency.format(account.remainingNet)}</strong>
+                        <small>{account.net > 0 ? "saldo ainda em aberto" : "saldo compensado"}</small>
                       </div>
-                      <span className={`status-pill ${account.net === 0 ? "violet" : hasReceipt ? "info" : "warning"}`}>
-                        {account.net === 0 ? "Compensação total" : hasReceipt ? "Comprovante anexado" : "Sem comprovante"}
+                      <span className={`status-pill ${account.net === 0 ? "violet" : account.pendingPayment ? "info" : "warning"}`}>
+                        {account.net === 0 ? "Compensação total" : account.pendingPayment ? "Aguardando confirmação" : "Em aberto"}
                       </span>
                     </div>
 
@@ -459,7 +560,9 @@ export default async function MyPage({
                       </span>
                       <p>
                         {account.net > 0
-                          ? `${account.debtor.name} deve fazer um PIX de ${currency.format(account.net)} para ${account.creditor.name}.`
+                          ? account.pendingPayment
+                            ? `${account.debtor.name} informou ${currency.format(asNumber(account.pendingPayment.amount))}. Restam ${currency.format(account.remainingNet)} em aberto.`
+                            : `${account.debtor.name} deve fazer um PIX de ${currency.format(account.net)} para ${account.creditor.name}.`
                           : "Os valores são iguais e podem ser quitados por compensação, sem PIX."}
                       </p>
                     </div>
@@ -477,27 +580,33 @@ export default async function MyPage({
                       </div>
                     )}
 
-                    {account.net > 0 && account.representativeShare && !hasReceipt && (
+                    {account.net > 0 && account.representativeShare && !account.pendingPayment && (
                       <div style={{ padding: "4px 16px 14px" }}>
                         <AttachmentUploadForm
                           action={uploadShoppingNetReceipt}
                           hiddenFields={{ share_id: account.representativeShare.id }}
                           redirectTo="/app/eu"
                           label={`Anexar comprovante de ${account.debtor.name}`}
+                          paymentAmount={{
+                            defaultValue: account.remainingNet,
+                            max: account.remainingNet,
+                          }}
                         />
                       </div>
                     )}
 
-                    {account.net > 0 && hasReceipt && (
+                    {account.net > 0 && account.pendingPayment && (
                       <div className="purchase-proof-actions" style={{ padding: "12px 16px" }}>
                         <div className="attachment-row">
-                          <span>📎 {account.representativeShare?.receipt_name ?? "comprovante"}</span>
-                          {account.receiptUrl && (
-                            <a href={account.receiptUrl} target="_blank" rel="noreferrer">Ver</a>
+                          <span>📎 {currency.format(asNumber(account.pendingPayment.amount))}</span>
+                          {account.pendingPayment.receiptUrl && (
+                            <a href={account.pendingPayment.receiptUrl} target="_blank" rel="noreferrer">
+                              Ver {account.pendingPayment.receipt_name ?? "comprovante"}
+                            </a>
                           )}
                         </div>
                         <form action={confirmShoppingNetPayment}>
-                          <input type="hidden" name="share_id" value={account.representativeShare?.id} />
+                          <input type="hidden" name="payment_id" value={account.pendingPayment.id} />
                           <input type="hidden" name="redirect_to" value="/app/eu" />
                           <button className="button secondary small" type="submit">
                             Marcar como pago
@@ -520,6 +629,46 @@ export default async function MyPage({
                 );
               })}
             </div>
+
+            <details className="details-editor" style={{ margin: "0 20px 16px" }}>
+              <summary>Fechados de todos ({adminClosedPayments.length})</summary>
+              <div className="editor-body purchase-list">
+                {adminClosedPayments.length === 0 && (
+                  <div className="empty">Nenhum acerto fechado encontrado.</div>
+                )}
+                {adminClosedPayments.map((payment) => {
+                  const debtor = Array.isArray(payment.debtor) ? payment.debtor[0] : payment.debtor;
+                  const creditor = Array.isArray(payment.creditor) ? payment.creditor[0] : payment.creditor;
+                  return (
+                    <article className="purchase-card" key={payment.id}>
+                      <div className="purchase-summary personal-purchase-summary">
+                        <div className="item-title">
+                          <strong>{debtor?.name ?? "Morador"} → {creditor?.name ?? "Morador"}</strong>
+                          <small>
+                            Fechado em {new Date(payment.confirmed_at ?? payment.submitted_at).toLocaleDateString("pt-BR")}
+                          </small>
+                        </div>
+                        <div className="item-value">
+                          <strong>
+                            {payment.payment_kind === "compensation"
+                              ? "Sem PIX"
+                              : currency.format(asNumber(payment.amount))}
+                          </strong>
+                          <small>{payment.payment_kind === "compensation" ? "compensação" : "valor pago"}</small>
+                        </div>
+                        <span className="status-pill success">Pago</span>
+                      </div>
+                      {payment.receiptUrl && (
+                        <div className="attachment-row" style={{ margin: "0 16px 14px" }}>
+                          <span>📎 {payment.receipt_name ?? "comprovante"}</span>
+                          <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Ver</a>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </details>
           </section>
         )}
 

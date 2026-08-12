@@ -10,11 +10,16 @@ export function AttachmentUploadForm({
   hiddenFields,
   redirectTo,
   label,
+  paymentAmount,
 }: {
   action: Action;
   hiddenFields: Record<string, string>;
   redirectTo: string;
   label: string;
+  paymentAmount?: {
+    defaultValue: number;
+    max: number;
+  };
 }) {
   const [fileName, setFileName] = useState<string | null>(null);
 
@@ -28,6 +33,21 @@ export function AttachmentUploadForm({
         <input key={key} type="hidden" name={key} value={value} />
       ))}
       <input type="hidden" name="redirect_to" value={redirectTo} />
+      {paymentAmount && (
+        <label className="field">
+          Valor pago
+          <input
+            type="number"
+            name="payment_amount"
+            min="0.01"
+            max={paymentAmount.max.toFixed(2)}
+            step="0.01"
+            defaultValue={paymentAmount.defaultValue.toFixed(2)}
+            inputMode="decimal"
+            required
+          />
+        </label>
+      )}
       <label className="file-input-label">
         <input
           type="file"
