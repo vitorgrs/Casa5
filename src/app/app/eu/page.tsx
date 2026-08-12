@@ -8,6 +8,7 @@ import { signedReceiptUrl } from "@/lib/storage";
 import {
   confirmShoppingNetPayment,
   settleZeroShoppingBalance,
+  settleZeroShoppingBalanceAsAdmin,
   uploadShoppingNetReceipt,
 } from "@/app/app/organizacao/actions";
 
@@ -82,6 +83,17 @@ export default async function MyPage({
       .select("id,shopping_purchase_shares(id,member_id,amount,payment_status,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name,pix_key))")
       .eq("paid_by_member_id", memberId)
   ]);
+
+  let adminPendingShoppingShares: Array<Record<string, any>> = [];
+  if (profile.role === "admin") {
+    const { data } = await supabase
+      .from("shopping_purchase_shares")
+      .select(
+        "id,member_id,amount,payment_status,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name,pix_key),purchase:shopping_purchases!inner(id,household_id,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key))",
+      )
+      .eq("payment_status", "pending");
+    adminPendingShoppingShares = (data ?? []) as Array<Record<string, any>>;
+  }
 
   const shareRows = (shares ?? []).filter((s) => s.expense);
   const grouped = new Map<string, typeof shareRows>();
@@ -159,6 +171,64 @@ export default async function MyPage({
       };
     }),
   );
+
+  type AdminPairAccount = {
+    firstMember: { id: string; name: string; pix_key: string | null };
+    secondMember: { id: string; name: string; pix_key: string | null };
+    firstOwesSecond: Array<Record<string, any>>;
+    secondOwesFirst: Array<Record<string, any>>;
+  };
+  const adminPairMap = new Map<string, AdminPairAccount>();
+
+  for (const share of adminPendingShoppingShares) {
+    const purchase = Array.isArray(share.purchase) ? share.purchase[0] : share.purchase;
+    const debtor = Array.isArray(share.member) ? share.member[0] : share.member;
+    const creditor = Array.isArray(purchase?.paid_by) ? purchase.paid_by[0] : purchase?.paid_by;
+    if (!purchase || !debtor || !creditor || debtor.id === creditor.id) continue;
+
+    const debtorComesFirst = debtor.id.localeCompare(creditor.id) < 0;
+    const firstMember = debtorComesFirst ? debtor : creditor;
+    const secondMember = debtorComesFirst ? creditor : debtor;
+    const pairKey = `${firstMember.id}:${secondMember.id}`;
+    const account = adminPairMap.get(pairKey) ?? {
+      firstMember,
+      secondMember,
+      firstOwesSecond: [],
+      secondOwesFirst: [],
+    };
+    if (debtor.id === firstMember.id) account.firstOwesSecond.push(share);
+    else account.secondOwesFirst.push(share);
+    adminPairMap.set(pairKey, account);
+  }
+
+  const adminNetShoppingAccounts = await Promise.all(
+    Array.from(adminPairMap.values()).map(async (account) => {
+      const grossFirstOwesSecond = account.firstOwesSecond.reduce(
+        (sum, share) => sum + asNumber(share.amount),
+        0,
+      );
+      const grossSecondOwesFirst = account.secondOwesFirst.reduce(
+        (sum, share) => sum + asNumber(share.amount),
+        0,
+      );
+      const signedNet = Math.round((grossFirstOwesSecond - grossSecondOwesFirst) * 100) / 100;
+      const debtor = signedNet >= 0 ? account.firstMember : account.secondMember;
+      const creditor = signedNet >= 0 ? account.secondMember : account.firstMember;
+      const debtorShares = signedNet >= 0 ? account.firstOwesSecond : account.secondOwesFirst;
+      const receiptShare = debtorShares.find((share) => share.receipt_path);
+      const representativeShare = receiptShare ?? debtorShares[0];
+      return {
+        ...account,
+        grossFirstOwesSecond,
+        grossSecondOwesFirst,
+        net: Math.abs(signedNet),
+        debtor,
+        creditor,
+        representativeShare,
+        receiptUrl: await signedReceiptUrl(supabase, receiptShare?.receipt_path ?? null),
+      };
+    }),
+  );
   const totalUnpaid =
     unpaid.reduce((sum, s) => sum + asNumber(s.amount), 0)
     + netShoppingAccounts.filter((account) => account.net > 0).reduce((sum, account) => sum + account.net, 0);
@@ -222,8 +292,8 @@ export default async function MyPage({
             <div>
               <h2>Acertos de compras entre moradores</h2>
               <span className="muted-text" style={{ fontSize: 10 }}>
-                Envie o comprovante por aqui. O recebedor só poderá marcar o
-                pagamento como pago depois que o arquivo for anexado.
+                Envie o comprovante por aqui. O recebedor ou o administrador
+                só poderá marcar como pago depois que o arquivo for anexado.
               </span>
             </div>
             <WalletIcon />
@@ -342,6 +412,116 @@ export default async function MyPage({
             })}
           </div>
         </section>
+
+        {profile.role === "admin" && (
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <h2>Administração dos acertos de todos</h2>
+                <span className="muted-text" style={{ fontSize: 10 }}>
+                  Veja quem deve pagar, anexe o comprovante pelo morador e
+                  marque como pago somente depois do arquivo.
+                </span>
+              </div>
+              <UsersIcon />
+            </div>
+            <div className="purchase-list">
+              {adminNetShoppingAccounts.length === 0 && (
+                <div className="empty">Nenhum acerto entre moradores está pendente.</div>
+              )}
+              {adminNetShoppingAccounts.map((account) => {
+                const hasReceipt = Boolean(account.representativeShare?.receipt_path);
+                const pairKey = `${account.firstMember.id}:${account.secondMember.id}`;
+                return (
+                  <article className="purchase-card net-account-card" key={pairKey}>
+                    <div className="purchase-summary personal-purchase-summary">
+                      <div className="item-title">
+                        <strong>{account.firstMember.name} × {account.secondMember.name}</strong>
+                        <small>Visão administrativa do saldo líquido</small>
+                      </div>
+                      <div className="item-value">
+                        <strong>{currency.format(account.net)}</strong>
+                        <small>{account.net > 0 ? `${account.debtor.name} paga` : "saldo compensado"}</small>
+                      </div>
+                      <span className={`status-pill ${account.net === 0 ? "violet" : hasReceipt ? "info" : "warning"}`}>
+                        {account.net === 0 ? "Compensação total" : hasReceipt ? "Comprovante anexado" : "Sem comprovante"}
+                      </span>
+                    </div>
+
+                    <div className="netting-explanation">
+                      <span>
+                        {account.firstMember.name} deve a {account.secondMember.name}:{" "}
+                        <strong>{currency.format(account.grossFirstOwesSecond)}</strong>
+                      </span>
+                      <span>
+                        {account.secondMember.name} deve a {account.firstMember.name}:{" "}
+                        <strong>{currency.format(account.grossSecondOwesFirst)}</strong>
+                      </span>
+                      <p>
+                        {account.net > 0
+                          ? `${account.debtor.name} deve fazer um PIX de ${currency.format(account.net)} para ${account.creditor.name}.`
+                          : "Os valores são iguais e podem ser quitados por compensação, sem PIX."}
+                      </p>
+                    </div>
+
+                    {account.net > 0 && (
+                      <div className="purchase-payer">
+                        <div>
+                          <span>Quem deve pagar</span>
+                          <strong>{account.debtor.name}</strong>
+                        </div>
+                        <div>
+                          <span>PIX de {account.creditor.name}</span>
+                          <strong>{account.creditor.pix_key ?? "Chave PIX não cadastrada"}</strong>
+                        </div>
+                      </div>
+                    )}
+
+                    {account.net > 0 && account.representativeShare && !hasReceipt && (
+                      <div style={{ padding: "4px 16px 14px" }}>
+                        <AttachmentUploadForm
+                          action={uploadShoppingNetReceipt}
+                          hiddenFields={{ share_id: account.representativeShare.id }}
+                          redirectTo="/app/eu"
+                          label={`Anexar comprovante de ${account.debtor.name}`}
+                        />
+                      </div>
+                    )}
+
+                    {account.net > 0 && hasReceipt && (
+                      <div className="purchase-proof-actions" style={{ padding: "12px 16px" }}>
+                        <div className="attachment-row">
+                          <span>📎 {account.representativeShare?.receipt_name ?? "comprovante"}</span>
+                          {account.receiptUrl && (
+                            <a href={account.receiptUrl} target="_blank" rel="noreferrer">Ver</a>
+                          )}
+                        </div>
+                        <form action={confirmShoppingNetPayment}>
+                          <input type="hidden" name="share_id" value={account.representativeShare?.id} />
+                          <input type="hidden" name="redirect_to" value="/app/eu" />
+                          <button className="button secondary small" type="submit">
+                            Marcar como pago
+                          </button>
+                        </form>
+                      </div>
+                    )}
+
+                    {account.net === 0 && (
+                      <form action={settleZeroShoppingBalanceAsAdmin} style={{ padding: "0 16px 14px" }}>
+                        <input type="hidden" name="first_member_id" value={account.firstMember.id} />
+                        <input type="hidden" name="second_member_id" value={account.secondMember.id} />
+                        <input type="hidden" name="redirect_to" value="/app/eu" />
+                        <button className="button secondary small" type="submit">
+                          Quitar por compensação
+                        </button>
+                      </form>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <section className="card">
           <div className="card-head">

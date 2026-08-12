@@ -497,3 +497,18 @@ moradores, pode anexar o comprovante em nome de cada um e, depois do anexo,
 marcar a parcela como paga. Sem comprovante, o botão de pagamento fica
 bloqueado e o banco também rejeita a baixa. Para remover o comprovante de uma
 parcela paga, primeiro é necessário desfazer o pagamento.
+
+## Atualização: painel administrativo dos acertos de compras
+
+Depois da migração 010, rode:
+
+```text
+supabase/migrations/011_admin_manage_all_shopping_settlements.sql
+```
+
+Na **Minha página**, o administrador possui uma seção adicional com todos os
+acertos pendentes entre moradores. O painel mostra as dívidas nos dois
+sentidos, o saldo compensado, quem deve pagar e a chave PIX do recebedor. O
+administrador pode anexar o comprovante em nome do devedor e, somente depois
+do arquivo, marcar o acerto como pago. Saldos iguais podem ser encerrados por
+compensação, pois não exigem PIX.

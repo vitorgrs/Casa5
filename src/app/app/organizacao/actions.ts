@@ -312,8 +312,8 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
   if (!share || !purchase || purchase.household_id !== profile.household_id) {
     throw new Error("Dívida de compra não encontrada.");
   }
-  if (share.member_id !== profile.member_id) {
-    throw new Error("Você só pode enviar o comprovante da sua própria dívida.");
+  if (share.member_id !== profile.member_id && profile.role !== "admin") {
+    throw new Error("Somente o devedor ou o administrador pode enviar este comprovante.");
   }
   if (share.receipt_path) {
     throw new Error("Esta dívida já possui um comprovante enviado.");
@@ -338,7 +338,9 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
 
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
-  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante enviado. O pagamento aguarda a confirmação de quem recebeu o PIX.")}`);
+  redirect(
+    `${pathOf(returnTo)}?success=${encodeURIComponent("Comprovante enviado. O pagamento aguarda a confirmação do recebedor ou do administrador.")}`,
+  );
 }
 
 export async function confirmShoppingNetPayment(formData: FormData) {
@@ -366,4 +368,26 @@ export async function settleZeroShoppingBalance(formData: FormData) {
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
   redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Dívidas compensadas e quitadas.")}`);
+}
+
+export async function settleZeroShoppingBalanceAsAdmin(formData: FormData) {
+  const returnTo = destination(formData, "/app/eu");
+  const { supabase } = await requireAdmin();
+  const firstMemberId = String(formData.get("first_member_id") ?? "");
+  const secondMemberId = String(formData.get("second_member_id") ?? "");
+  if (!firstMemberId || !secondMemberId || firstMemberId === secondMemberId) {
+    throw new Error("Informe dois moradores diferentes para a compensação.");
+  }
+
+  const { error } = await supabase.rpc("settle_zero_shopping_balance_as_admin", {
+    first_member_id: firstMemberId,
+    second_member_id: secondMemberId,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/app/organizacao");
+  revalidatePath("/app/eu");
+  redirect(
+    `${pathOf(returnTo)}?success=${encodeURIComponent("Acerto compensado pelo administrador.")}`,
+  );
 }
