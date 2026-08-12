@@ -7,6 +7,7 @@ import {
   requireAdmin,
   requirePermission,
 } from "@/lib/auth";
+import type { FormActionState } from "@/lib/form-action-state";
 import { deleteFromReceiptBucket, uploadToReceiptBucket } from "@/lib/storage";
 
 function destination(formData: FormData, fallback: string) {
@@ -294,41 +295,61 @@ export async function deleteShoppingItem(formData: FormData) {
   redirect(returnTo);
 }
 
-export async function uploadShoppingNetReceipt(formData: FormData) {
+export async function uploadShoppingNetReceipt(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
   const { profile, supabase } = await requireActiveProfile();
   const shareId = String(formData.get("share_id") ?? "");
   const paidAmount = decimal(formData.get("payment_amount"));
   const file = formData.get("file");
   if (paidAmount === null || paidAmount <= 0) {
-    throw new Error("Informe o valor que foi pago.");
+    return { status: "error", message: "Informe o valor que foi pago." };
   }
   if (!(file instanceof File) || file.size === 0) {
-    throw new Error("Selecione um arquivo (PDF ou foto) antes de enviar.");
+    return {
+      status: "error",
+      message: "Selecione um arquivo (PDF ou foto) antes de enviar.",
+    };
   }
 
-  const { data: share } = await supabase
+  const { data: share, error: shareError } = await supabase
     .from("shopping_purchase_shares")
     .select("id,member_id,receipt_path,purchase:shopping_purchases(household_id)")
     .eq("id", shareId)
     .single();
   const purchase = Array.isArray(share?.purchase) ? share.purchase[0] : share?.purchase;
-  if (!share || !purchase || purchase.household_id !== profile.household_id) {
-    throw new Error("Dívida de compra não encontrada.");
+  if (shareError || !share || !purchase || purchase.household_id !== profile.household_id) {
+    return { status: "error", message: "Dívida de compra não encontrada." };
   }
   if (share.member_id !== profile.member_id && profile.role !== "admin") {
-    throw new Error("Somente o devedor ou o administrador pode enviar este comprovante.");
+    return {
+      status: "error",
+      message: "Somente o devedor ou o administrador pode enviar este comprovante.",
+    };
   }
   if (share.receipt_path) {
-    throw new Error("Esta dívida já possui um comprovante enviado.");
+    return {
+      status: "error",
+      message: "Esta dívida já possui um comprovante enviado.",
+    };
   }
 
-  const uploaded = await uploadToReceiptBucket(
-    supabase,
-    profile.household_id!,
-    `shopping-net/${shareId}`,
-    file,
-  );
+  let uploaded: Awaited<ReturnType<typeof uploadToReceiptBucket>>;
+  try {
+    uploaded = await uploadToReceiptBucket(
+      supabase,
+      profile.household_id!,
+      `shopping-net/${shareId}`,
+      file,
+    );
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível enviar o arquivo.",
+    };
+  }
 
   const { error } = await supabase.rpc("submit_shopping_net_receipt", {
     target_share_id: shareId,
@@ -338,31 +359,40 @@ export async function uploadShoppingNetReceipt(formData: FormData) {
   });
   if (error) {
     await deleteFromReceiptBucket(supabase, uploaded.path);
-    throw new Error(error.message);
+    return { status: "error", message: error.message };
   }
 
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
-  redirect(
-    `${pathOf(returnTo)}?success=${encodeURIComponent(`Comprovante de ${paidAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} enviado. O valor aguarda confirmação e qualquer saldo restante continua em aberto.`)}`,
-  );
+  revalidatePath(pathOf(returnTo));
+  return {
+    status: "success",
+    message: `Comprovante de ${paidAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} enviado. O valor aguarda confirmação.`,
+  };
 }
 
-export async function confirmShoppingNetPayment(formData: FormData) {
+export async function confirmShoppingNetPayment(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/eu");
   const { supabase } = await requireActiveProfile();
   const paymentId = String(formData.get("payment_id") ?? "");
-  if (!paymentId) throw new Error("Pagamento não informado.");
+  if (!paymentId) {
+    return { status: "error", message: "Pagamento não informado." };
+  }
   const { error } = await supabase.rpc("confirm_shopping_net_payment", {
     target_payment_id: paymentId,
   });
-  if (error) throw new Error(error.message);
+  if (error) return { status: "error", message: error.message };
 
   revalidatePath("/app/organizacao");
   revalidatePath("/app/eu");
-  redirect(
-    `${pathOf(returnTo)}?success=${encodeURIComponent("Pagamento confirmado. Se houver saldo restante, ele continua em aberto.")}`,
-  );
+  revalidatePath(pathOf(returnTo));
+  return {
+    status: "success",
+    message: "Pagamento confirmado. Se houver saldo restante, ele continua em aberto.",
+  };
 }
 
 export async function settleZeroShoppingBalance(formData: FormData) {

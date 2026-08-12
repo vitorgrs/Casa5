@@ -2302,6 +2302,23 @@ textarea {
   flex-wrap: wrap;
   margin-top: 8px;
 }
+.inline-action-message {
+  flex: 1 0 100%;
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 9px 11px;
+}
+.shopping-confirmation-form {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+.shopping-confirmation-form .inline-action-message {
+  text-align: left;
+}
 .file-input-label {
   display: inline-flex;
   align-items: center;

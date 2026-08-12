@@ -1,20 +1,21 @@
 import Link from "next/link";
-import { AttachmentUploadForm } from "@/components/attachment-upload-form";
 import { StatusPill } from "@/components/status-pill";
 import { CalendarIcon, ChecklistIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import { requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
 import { signedReceiptUrl } from "@/lib/storage";
 import {
-  confirmShoppingNetPayment,
   settleZeroShoppingBalance,
   settleZeroShoppingBalanceAsAdmin,
-  uploadShoppingNetReceipt,
 } from "@/app/app/organizacao/actions";
 import {
   SettlementDetailsModal,
   type SettlementDetails,
 } from "./settlement-details-modal";
+import {
+  ShoppingPaymentConfirmationForm,
+  ShoppingReceiptUploadForm,
+} from "./shopping-payment-forms";
 
 type SettlementMember = {
   id: string;
@@ -577,15 +578,12 @@ export default async function MyPage({
 
                   {account.net > 0 && account.representativeShare && !pendingPayment && (
                     <div style={{ padding: "4px 16px 14px" }}>
-                      <AttachmentUploadForm
-                        action={uploadShoppingNetReceipt}
-                        hiddenFields={{ share_id: account.representativeShare.id }}
+                      <ShoppingReceiptUploadForm
+                        shareId={account.representativeShare.id}
                         redirectTo="/app/eu"
                         label="Enviar comprovante do PIX"
-                        paymentAmount={{
-                          defaultValue: account.remainingNet,
-                          max: account.remainingNet,
-                        }}
+                        defaultValue={account.remainingNet}
+                        max={account.remainingNet}
                       />
                     </div>
                   )}
@@ -601,11 +599,11 @@ export default async function MyPage({
                         )}
                       </div>
                       {account.net < 0 && (
-                        <form action={confirmShoppingNetPayment}>
-                          <input type="hidden" name="payment_id" value={pendingPayment.id} />
-                          <input type="hidden" name="redirect_to" value="/app/eu" />
-                          <button className="button secondary small" type="submit">Confirmar pagamento</button>
-                        </form>
+                        <ShoppingPaymentConfirmationForm
+                          paymentId={pendingPayment.id}
+                          redirectTo="/app/eu"
+                          label="Confirmar pagamento"
+                        />
                       )}
                     </div>
                   )}
@@ -734,15 +732,12 @@ export default async function MyPage({
 
                     {account.net > 0 && account.representativeShare && !account.pendingPayment && (
                       <div style={{ padding: "4px 16px 14px" }}>
-                        <AttachmentUploadForm
-                          action={uploadShoppingNetReceipt}
-                          hiddenFields={{ share_id: account.representativeShare.id }}
+                        <ShoppingReceiptUploadForm
+                          shareId={account.representativeShare.id}
                           redirectTo="/app/eu"
                           label={`Anexar comprovante de ${account.debtor.name}`}
-                          paymentAmount={{
-                            defaultValue: account.remainingNet,
-                            max: account.remainingNet,
-                          }}
+                          defaultValue={account.remainingNet}
+                          max={account.remainingNet}
                         />
                       </div>
                     )}
@@ -757,13 +752,11 @@ export default async function MyPage({
                             </a>
                           )}
                         </div>
-                        <form action={confirmShoppingNetPayment}>
-                          <input type="hidden" name="payment_id" value={account.pendingPayment.id} />
-                          <input type="hidden" name="redirect_to" value="/app/eu" />
-                          <button className="button secondary small" type="submit">
-                            Marcar como pago
-                          </button>
-                        </form>
+                        <ShoppingPaymentConfirmationForm
+                          paymentId={account.pendingPayment.id}
+                          redirectTo="/app/eu"
+                          label="Marcar como pago"
+                        />
                       </div>
                     )}
 
