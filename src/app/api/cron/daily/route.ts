@@ -117,7 +117,15 @@ export async function GET(request: Request) {
   if (process.env.MERCADO_PAGO_ACCESS_TOKEN) {
     try {
       const mp = await syncLatestMercadoPagoReport(supabase, householdId, null);
-      result.mercadoPago = mp.imported ? "relatório importado" : "nova geração solicitada";
+      result.mercadoPago = mp.imported
+        ? "relatório importado"
+        : mp.requested
+          ? "nova geração solicitada"
+          : mp.latestTaskStatus === "pending"
+            ? "relatório em processamento"
+            : mp.latestReportReady
+              ? "nenhum relatório novo"
+              : mp.requestDetail ?? "nenhum arquivo pronto";
     } catch (error) {
       result.mercadoPago = error instanceof Error ? `erro: ${error.message}` : "erro desconhecido";
     }

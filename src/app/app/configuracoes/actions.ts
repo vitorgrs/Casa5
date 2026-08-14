@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
 import { PERMISSION_CATALOG } from "@/lib/permissions";
+import { createServiceClient } from "@/lib/supabase/service";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -56,18 +57,21 @@ export async function syncMercadoPago() {
     let message: string;
     if (result.imported) {
       message = "Novo relatório importado com sucesso.";
-    } else if (result.reportsFound === 0 && result.requestDetail) {
+    } else if (result.requestDetail) {
       message = `O Mercado Pago recusou a criação do relatório. ${result.requestDetail}`;
-    } else if (result.reportsFound === 0) {
+    } else if (result.requested) {
       message =
-        "Nenhum relatório encontrado ainda. Uma nova geração foi solicitada; isso pode levar algumas horas na primeira vez.";
-    } else if (!result.latestReportReady) {
+        "Uma nova geração foi solicitada ao Mercado Pago. O processamento é assíncrono; sincronize novamente mais tarde para importar o arquivo.";
+    } else if (result.latestTaskStatus === "pending") {
       message =
-        "O relatório mais recente ainda está sendo processado pelo Mercado Pago (ainda sem arquivo disponível). Aguarde e sincronize novamente em algumas horas.";
-    } else {
+        "O relatório mais recente ainda está sendo processado pelo Mercado Pago. Aguarde e sincronize novamente mais tarde.";
+    } else if (result.latestReportReady) {
       message = "Nenhum relatório novo encontrado desde a última sincronização.";
+    } else {
+      message =
+        "Ainda não há arquivo pronto para importar. O Mercado Pago já recebeu a solicitação; aguarde a disponibilização do relatório.";
     }
-    const kind = result.imported || result.reportsFound > 0 ? "success" : "error";
+    const kind = result.requestDetail ? "error" : "success";
     destination = `/app/configuracoes?${kind}=${encodeURIComponent(message)}`;
   } catch (error) {
     const message =
@@ -112,10 +116,29 @@ export async function updateReminderSettings(formData: FormData) {
 
 export async function sendRemindersNow(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { profile, supabase } = await requireAdmin();
+  const { profile } = await requireAdmin();
+  // O log anti-spam só aceita escrita pela service role. A rotina manual
+  // autentica o administrador acima e usa o mesmo cliente do cron no envio.
+  const supabase = createServiceClient();
   const { runExpenseReminders } = await import("@/lib/reminders");
   const result = await runExpenseReminders(supabase, profile.household_id!);
   revalidatePath(pathOf(returnTo));
   const kind = result.ok ? "success" : "error";
-  redirect(`${pathOf(returnTo)}?${kind}=${encodeURIComponent(`Teste de lembretes: ${result.message}`)}`);
+  redirect(`${pathOf(returnTo)}?${kind}=${encodeURIComponent(`Lembretes: ${result.message}`)}`);
+}
+
+export async function sendOpenSettlementsNow(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes");
+  const { profile } = await requireAdmin();
+  const supabase = createServiceClient();
+  const { runOpenSettlementEmails } = await import("@/lib/settlement-emails");
+  const result = await runOpenSettlementEmails(
+    supabase,
+    profile.household_id!,
+  );
+  revalidatePath(pathOf(returnTo));
+  const kind = result.ok ? "success" : "error";
+  redirect(
+    `${pathOf(returnTo)}?${kind}=${encodeURIComponent(`Acertos: ${result.message}`)}`,
+  );
 }

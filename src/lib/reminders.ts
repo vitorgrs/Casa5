@@ -96,7 +96,14 @@ export async function runExpenseReminders(
       });
       // unique(expense_share_id, reminder_date) impede reenviar no mesmo dia.
       if (logError) {
-        skippedAlreadySent += 1;
+        if (logError.code === "23505") {
+          skippedAlreadySent += 1;
+        } else {
+          failures.push({
+            to: member.email,
+            error: `Não foi possível registrar o envio: ${logError.message}`,
+          });
+        }
         continue;
       }
 

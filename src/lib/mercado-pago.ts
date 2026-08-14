@@ -78,7 +78,7 @@ export async function ensureBankReportConfig() {
     const current = (await check.json()) as ReportConfig;
     const currentColumns = new Set((current.columns ?? []).map((column) => column.key));
     const missingColumns = requiredColumns.some((column) => !currentColumns.has(column));
-    const wrongSeparator = current.separator !== ",";
+    const wrongSeparator = Boolean(current.separator && current.separator !== ",");
 
     if (!missingColumns && !wrongSeparator) return;
 
@@ -164,39 +164,70 @@ export async function generateBankReport(days = 35): Promise<GenerateReportResul
   return { status: response.status, accepted: true, detail: null };
 }
 
-type ReportItem = {
+type ReportTask = {
   id: number;
-  file_name?: string;
-  date_created?: string;
   generation_date?: string;
   last_modified?: string;
-  download_date?: string;
   begin_date: string;
   end_date: string;
-  /**
-   * ATENÇÃO: apesar do nome, este campo NÃO indica se o relatório terminou
-   * de ser processado. Segundo a documentação oficial do Mercado Pago,
-   * "status" aqui é sempre "enabled" para qualquer relatório válido (ativo,
-   * não removido) — não é um status de processamento como "pending" ou
-   * "processed". O bug antigo comparava `status === "processed"`, que
-   * NUNCA é verdadeiro, então nenhum relatório era considerado pronto e o
-   * saldo nunca era importado. O indicador correto de que o relatório está
-   * pronto para download é a presença de `file_name` (e, quando disponível,
-   * `download_date`).
-   */
   status?: string;
 };
 
-function reportTimestamp(report: ReportItem) {
-  const value = report.date_created ?? report.generation_date ?? report.last_modified ?? report.end_date;
+type ReadyReport = {
+  id: number;
+  file_name: string;
+  date_created?: string;
+  download_date?: string;
+  begin_date: string;
+  end_date: string;
+  status?: string;
+};
+
+type SearchReportsResponse = {
+  results?: ReadyReport[];
+};
+
+type DatedReport = ReportTask | ReadyReport;
+
+function reportTimestamp(report: DatedReport) {
+  const reportWithDates = report as DatedReport & {
+    date_created?: string;
+    generation_date?: string;
+    last_modified?: string;
+  };
+  const value =
+    reportWithDates.date_created ??
+    reportWithDates.generation_date ??
+    reportWithDates.last_modified ??
+    report.end_date;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-export async function listBankReports(): Promise<ReportItem[]> {
+/**
+ * O formato de `/list` varia entre contas: ele pode expor tarefas de geração
+ * (`pending`/`processed`) ou registros já habilitados. Aqui ele serve apenas
+ * para detectar a atividade mais recente, nunca para escolher o download.
+ */
+export async function listBankReportTasks(): Promise<ReportTask[]> {
   const response = await mpFetch(`${RELEASE_REPORT_PATH}/list`);
-  const data = (await response.json()) as ReportItem[];
+  const data = (await response.json()) as ReportTask[];
   return [...data].sort((a, b) => reportTimestamp(b) - reportTimestamp(a));
+}
+
+/**
+ * `/search` possui o contrato estável dos arquivos prontos: resposta paginada
+ * em `results`, com o `file_name` necessário para o download.
+ */
+export async function listBankReports(): Promise<ReadyReport[]> {
+  const response = await mpFetch(
+    `${RELEASE_REPORT_PATH}/search?limit=100&offset=0`,
+  );
+  const data = (await response.json()) as SearchReportsResponse | ReadyReport[];
+  const reports = Array.isArray(data) ? data : (data.results ?? []);
+  return reports
+    .filter((report) => Boolean(report.file_name))
+    .sort((a, b) => reportTimestamp(b) - reportTimestamp(a));
 }
 
 function parseMoney(value: string | undefined) {
@@ -225,7 +256,28 @@ export async function downloadAndCalculateBalance(fileName: string) {
   const separator = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ";" : ",";
   const rows = parseCsv(csv.replace(/^\uFEFF/, ""), separator);
 
-  const rowsWithBalance = rows.filter((row) => row.BALANCE_AMOUNT?.trim());
+  if (
+    rows.length === 0 ||
+    !rows.some(
+      (row) =>
+        "BALANCE_AMOUNT" in row ||
+        "NET_CREDIT_AMOUNT" in row ||
+        "NET_DEBIT_AMOUNT" in row,
+    )
+  ) {
+    throw new Error(
+      "O Mercado Pago retornou um relatório vazio ou sem as colunas financeiras esperadas.",
+    );
+  }
+
+  // A linha final `total` do CSV pode trazer BALANCE_AMOUNT=0,00 mesmo
+  // quando a última movimentação tem saldo disponível. O saldo correto é o
+  // BALANCE_AMOUNT mais recente de uma linha operacional.
+  const rowsWithBalance = rows.filter(
+    (row) =>
+      row.BALANCE_AMOUNT?.trim() &&
+      row.RECORD_TYPE?.trim().toLowerCase() !== "total",
+  );
   const lastBalanceRow = rowsWithBalance.at(-1);
 
   let balance: number;
@@ -261,41 +313,61 @@ export async function syncLatestMercadoPagoReport(
   createdBy: string | null = null
 ) {
   await ensureBankReportConfig();
-  const reports = await listBankReports();
-  // Pronto para importar = tem file_name (o campo "status" NÃO serve pra
-  // isso, ver comentário no tipo ReportItem acima).
-  const latestReadyReport = reports.find((report) => Boolean(report.file_name));
+  const [tasks, reports] = await Promise.all([
+    listBankReportTasks(),
+    listBankReports(),
+  ]);
+  const latestReadyReport = reports[0];
 
   let imported = false;
   let balance: number | null = null;
   let requestDetail: string | null = null;
 
-  if (latestReadyReport?.file_name) {
+  if (latestReadyReport) {
     const latest = latestReadyReport;
-    const fileName = latest.file_name!;
-    const { data: existing } = await supabase
+    const fileName = latest.file_name;
+    const { data: existing, error: existingError } = await supabase
       .from("wallet_snapshots")
       .select("id,balance")
+      .eq("household_id", householdId)
       .eq("external_id", fileName)
       .maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+
+    const result = await downloadAndCalculateBalance(fileName);
+    const snapshot = {
+      balance: result.balance,
+      observed_at:
+        result.lastMovementAt ?? latest.end_date ?? new Date().toISOString(),
+      raw_payload: {
+        report_id: latest.id,
+        file_name: fileName,
+        transactions: result.transactions,
+        begin_date: latest.begin_date,
+        end_date: latest.end_date,
+      },
+    };
 
     if (existing) {
-      balance = Number(existing.balance);
+      const existingCents = Math.round(Number(existing.balance) * 100);
+      const calculatedCents = Math.round(result.balance * 100);
+      if (existingCents !== calculatedCents) {
+        // Repara snapshots criados pela versão antiga, que lia o zero da
+        // linha `total` em vez do saldo da última movimentação.
+        const { error } = await supabase
+          .from("wallet_snapshots")
+          .update(snapshot)
+          .eq("id", existing.id);
+        if (error) throw new Error(error.message);
+        imported = true;
+      }
+      balance = result.balance;
     } else {
-      const result = await downloadAndCalculateBalance(fileName);
       const { error } = await supabase.from("wallet_snapshots").insert({
         household_id: householdId,
-        balance: result.balance,
+        ...snapshot,
         source: "mercado_pago",
         external_id: fileName,
-        observed_at: result.lastMovementAt ?? latest.end_date ?? new Date().toISOString(),
-        raw_payload: {
-          report_id: latest.id,
-          file_name: fileName,
-          transactions: result.transactions,
-          begin_date: latest.begin_date,
-          end_date: latest.end_date
-        },
         created_by: createdBy
       });
       if (error) throw new Error(error.message);
@@ -304,7 +376,9 @@ export async function syncLatestMercadoPagoReport(
     }
   }
 
-  const newestCreatedAt = reports[0] ? reportTimestamp(reports[0]) : 0;
+  const newestTaskAt = tasks[0] ? reportTimestamp(tasks[0]) : 0;
+  const newestReportAt = reports[0] ? reportTimestamp(reports[0]) : 0;
+  const newestCreatedAt = Math.max(newestTaskAt, newestReportAt);
   const twentyHoursAgo = Date.now() - 20 * 60 * 60 * 1000;
   let requested = false;
   if (newestCreatedAt < twentyHoursAgo) {
@@ -318,10 +392,14 @@ export async function syncLatestMercadoPagoReport(
   return {
     imported,
     balance,
-    reportsFound: reports.length,
+    reportsFound: tasks.length,
+    readyReportsFound: reports.length,
     requested,
     requestDetail,
-    latestReportReady: Boolean(reports[0]?.file_name),
-    latestReportDate: reports[0] ? new Date(reportTimestamp(reports[0])).toISOString() : null
+    latestReportReady: Boolean(reports[0]),
+    latestTaskStatus: tasks[0]?.status ?? null,
+    latestReportDate: newestCreatedAt
+      ? new Date(newestCreatedAt).toISOString()
+      : null,
   };
 }

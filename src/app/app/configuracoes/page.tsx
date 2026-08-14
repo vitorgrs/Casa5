@@ -3,7 +3,13 @@ import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency } from "@/lib/format";
-import { addManualBalance, sendRemindersNow, syncMercadoPago, updateReminderSettings } from "./actions";
+import {
+  addManualBalance,
+  sendOpenSettlementsNow,
+  sendRemindersNow,
+  syncMercadoPago,
+  updateReminderSettings,
+} from "./actions";
 
 export default async function SettingsPage({
   searchParams,
@@ -277,7 +283,34 @@ export default async function SettingsPage({
               <form action={sendRemindersNow} style={{ marginTop: 12 }}>
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
                 <SubmitButton className="button ghost" disabled={!resendConfigured} pendingLabel="Enviando...">
-                  Testar / enviar lembretes agora
+                  Enviar lembretes de vencimento agora
+                </SubmitButton>
+              </form>
+            </section>
+          )}
+
+          {profile.role === "admin" && (
+            <section className="card pad">
+              <h3 style={{ marginTop: 0 }}>E-mail de acerto de contas</h3>
+              <p className="note">
+                Envia um resumo bonito e detalhado para cada morador que ainda
+                precisa pagar alguém. O e-mail mostra as compras, a compensação
+                entre as dívidas, o valor final e a chave PIX de cada pessoa que
+                deve receber. Quem não deve nada não recebe e-mail.
+              </p>
+              <div className="message info">
+                O disparo é manual e acontece somente quando você apertar o
+                botão. Antes de enviar, confira se os e-mails e as chaves PIX
+                estão atualizados em Moradores.
+              </div>
+              <form action={sendOpenSettlementsNow} style={{ marginTop: 12 }}>
+                <input type="hidden" name="redirect_to" value="/app/configuracoes" />
+                <SubmitButton
+                  className="button secondary"
+                  disabled={!resendConfigured}
+                  pendingLabel="Enviando acertos..."
+                >
+                  Enviar acertos em aberto
                 </SubmitButton>
               </form>
             </section>
