@@ -43,7 +43,7 @@ export default async function SettingsPage({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const resendConfigured = Boolean(process.env.RESEND_API_KEY) && Boolean(process.env.RESEND_FROM);
+  const brevoConfigured = Boolean(process.env.BREVO_API_KEY) && Boolean(process.env.BREVO_FROM_EMAIL);
 
   return (
     <>
@@ -243,18 +243,15 @@ export default async function SettingsPage({
             <section className="card pad">
               <h3 style={{ marginTop: 0 }}>Lembretes de vencimento por e-mail</h3>
               <p className="note">
-                Usa a API do Resend (plano gratuito: 3.000 e-mails/mês). É
-                necessário verificar um domínio de envio no Resend (Domains →
-                Add Domain) e definir <code>RESEND_API_KEY</code> e{" "}
-                <code>RESEND_FROM</code> nas variáveis de ambiente da Vercel.
-                Sem essas variáveis, os lembretes ficam desativados
-                automaticamente. Se o domínio do <code>RESEND_FROM</code> não
-                estiver verificado no Resend, os envios falham silenciosamente
-                — use o botão de teste abaixo para ver o erro real.
+                Usa a API transacional do Brevo. No plano gratuito, cadastre e
+                confirme um remetente individual, como seu Gmail, e defina{" "}
+                <code>BREVO_API_KEY</code> e <code>BREVO_FROM_EMAIL</code> nas
+                variáveis de ambiente da Vercel. O nome do remetente pode ser
+                personalizado com <code>BREVO_FROM_NAME</code>.
               </p>
               <div className="message info">
-                Status do Resend:{" "}
-                <strong>{resendConfigured ? "variáveis configuradas" : "faltam variáveis"}</strong>
+                Status do Brevo:{" "}
+                <strong>{brevoConfigured ? "variáveis configuradas" : "faltam variáveis"}</strong>
               </div>
               <form action={updateReminderSettings} className="stack-form">
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
@@ -282,7 +279,7 @@ export default async function SettingsPage({
               </form>
               <form action={sendRemindersNow} style={{ marginTop: 12 }}>
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
-                <SubmitButton className="button ghost" disabled={!resendConfigured} pendingLabel="Enviando...">
+                <SubmitButton className="button ghost" disabled={!brevoConfigured} pendingLabel="Enviando...">
                   Enviar lembretes de vencimento agora
                 </SubmitButton>
               </form>
@@ -307,7 +304,7 @@ export default async function SettingsPage({
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
                 <SubmitButton
                   className="button secondary"
-                  disabled={!resendConfigured}
+                  disabled={!brevoConfigured}
                   pendingLabel="Enviando acertos..."
                 >
                   Enviar acertos em aberto

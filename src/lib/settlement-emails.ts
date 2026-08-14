@@ -83,7 +83,7 @@ export async function runOpenSettlementEmails(
 ): Promise<SettlementEmailRunResult> {
   if (!emailConfigured()) {
     return emptyResult(
-      "RESEND_API_KEY e/ou RESEND_FROM não estão definidos nas variáveis de ambiente.",
+      "BREVO_API_KEY e/ou BREVO_FROM_EMAIL não estão definidos nas variáveis de ambiente.",
     );
   }
 

@@ -261,22 +261,26 @@ Em **Moradores**, cada morador pode ter uma chave PIX cadastrada por quem
 tiver a permissão "gerenciar moradores" (ou o administrador). A chave fica
 visível para todos os moradores ativos.
 
-### 8. Lembretes de vencimento por e-mail (Resend)
+### 8. E-mails transacionais (Brevo)
 
-- **É viável**: o plano gratuito do Resend permite 3.000 e-mails/mês e
-  100/dia — muito mais do que uma casa de 5 pessoas usa mesmo enviando um
-  lembrete por parcela em aberto todos os dias.
-- Passos: crie uma conta no Resend, verifique um domínio de envio (Domains
-  → Add Domain) e defina na Vercel:
+- O plano gratuito do Brevo permite 300 envios por dia, suficiente para os
+  lembretes e acertos de uma casa com poucos moradores.
+- No painel do Brevo, cadastre um remetente individual em **Settings →
+  Senders, Domains & Dedicated IPs → Senders** e confirme o endereço pelo
+  e-mail recebido. Depois, gere uma chave em **SMTP & API → API Keys**.
+- Defina na Vercel:
   ```
-  RESEND_API_KEY=re_...
-  RESEND_FROM="Casa Cinco <avisos@seudominio.com>"
+  BREVO_API_KEY=xkeysib-...
+  BREVO_FROM_EMAIL=seuemail@gmail.com
+  BREVO_FROM_NAME=Casa Cinco
   NEXT_PUBLIC_APP_URL=https://SEU-APP.vercel.app
   ```
-- Sem essas variáveis, os lembretes ficam desativados automaticamente (o
-  resto do cron diário continua funcionando normalmente).
+- `BREVO_FROM_NAME` é opcional; na ausência, o sistema usa "Casa Cinco".
+- Sem a chave e o remetente, os envios ficam desativados automaticamente (o
+  restante do cron diário continua funcionando normalmente).
 - Em Configurações, o administrador pode ligar/desligar os lembretes e
-  escolher com quantos dias de antecedência avisar.
+  escolher com quantos dias de antecedência avisar, além de enviar
+  manualmente os acertos de compras em aberto.
 - Cada parcela recebe no máximo um lembrete por dia (controlado pela tabela
   `expense_reminder_log`), então não há risco de spam mesmo rodando o cron
   várias vezes.
@@ -373,13 +377,13 @@ pronto para download.
 
 ### 7. E-mails — como testar e diagnosticar
 
-Adicionei um botão **"Testar / enviar lembretes agora"** em Configurações
-(admin) que roda a mesma lógica do cron manualmente e mostra o erro real do
-Resend, se houver. Prováveis causas de nenhum e-mail ter chegado ainda:
+O botão **"Enviar lembretes de vencimento agora"** em Configurações (admin)
+roda a mesma lógica do cron manualmente e mostra o erro devolvido pelo Brevo,
+se houver. Prováveis causas de nenhum e-mail ter chegado:
 
-1. **Domínio não verificado no Resend.** Seu `RESEND_FROM` usa
-   `lembretes@casa5.com.br` — esse domínio precisa estar com o status
-   "Verified" em Resend → Domains. Sem isso, o Resend rejeita o envio.
+1. **Remetente não confirmado no Brevo.** O endereço informado em
+   `BREVO_FROM_EMAIL` precisa estar cadastrado em **Senders** e confirmado
+   pelo link enviado a essa caixa de e-mail.
 2. **`NEXT_PUBLIC_APP_URL=http://localhost:3000`** no seu `.env` de produção
    está incorreto — deveria ser a URL pública do seu app na Vercel (ex.:
    `https://casa5.vercel.app`). Isso não impede o envio, mas faz o link

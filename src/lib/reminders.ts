@@ -27,7 +27,7 @@ export async function runExpenseReminders(
       skippedAlreadySent: 0,
       failures: [],
       message:
-        "RESEND_API_KEY e/ou RESEND_FROM não estão definidos nas variáveis de ambiente.",
+        "BREVO_API_KEY e/ou BREVO_FROM_EMAIL não estão definidos nas variáveis de ambiente.",
     };
   }
 

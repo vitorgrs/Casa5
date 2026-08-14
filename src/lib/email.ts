@@ -1,18 +1,12 @@
 /**
- * Lembretes de vencimento por e-mail usando a API do Resend.
+ * Envio transacional pelo Brevo. A mesma função atende os lembretes de
+ * vencimento e os acertos de contas, usando um remetente individual que deve
+ * estar previamente cadastrado e verificado no painel do Brevo.
  *
- * Viabilidade: sim, é totalmente viável rodar isso na Vercel + Supabase.
- * O plano gratuito do Resend permite 3.000 e-mails/mês e 100/dia, o que é
- * muito mais do que uma casa de 5 pessoas precisa (no pior caso, ~5
- * despesas em aberto x 5 moradores x 1 lembrete/dia = 25 e-mails/dia).
- * A única exigência real é verificar um domínio de envio no Resend
- * (Domains > Add Domain) para poder mandar para qualquer destinatário;
- * sem domínio verificado, o Resend só permite testes com o endereço da
- * própria conta. Depois de verificado, defina as variáveis de ambiente:
- *   RESEND_API_KEY=re_...
- *   RESEND_FROM="Casa Cinco <avisos@seudominio.com>"
- * Se essas variáveis não existirem, os lembretes ficam desativados sem
- * quebrar o restante do app.
+ * Variáveis esperadas:
+ *   BREVO_API_KEY=xkeysib-...
+ *   BREVO_FROM_EMAIL=seuemail@gmail.com
+ *   BREVO_FROM_NAME=Casa Cinco (opcional)
  */
 
 type SendEmailInput = {
@@ -64,31 +58,40 @@ function formatEmailDate(value: string | null) {
 }
 
 export function emailConfigured() {
-  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM);
+  return Boolean(process.env.BREVO_API_KEY && process.env.BREVO_FROM_EMAIL);
 }
 
 export async function sendEmail({ to, subject, html }: SendEmailInput) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM;
-  if (!apiKey || !from) {
-    throw new Error("RESEND_API_KEY ou RESEND_FROM não configurados.");
+  const apiKey = process.env.BREVO_API_KEY;
+  const fromEmail = process.env.BREVO_FROM_EMAIL;
+  const fromName = process.env.BREVO_FROM_NAME?.trim() || "Casa Cinco";
+  if (!apiKey || !fromEmail) {
+    throw new Error(
+      "BREVO_API_KEY ou BREVO_FROM_EMAIL não configurados.",
+    );
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
+      "api-key": apiKey,
+      Accept: "application/json",
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to, subject, html })
+    body: JSON.stringify({
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+    }),
   });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Resend ${response.status}: ${body.slice(0, 500)}`);
+    throw new Error(`Brevo ${response.status}: ${body.slice(0, 500)}`);
   }
 
-  return (await response.json()) as { id: string };
+  return (await response.json()) as { messageId: string };
 }
 
 export function expenseReminderEmail(params: {
