@@ -249,6 +249,18 @@ function parseMoney(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function rowTimestamp(row: Record<string, string>) {
+  const timestamp = Date.parse(row.DATE?.trim() ?? "");
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function mostRecentRow(rows: Record<string, string>[]) {
+  return rows.reduce<Record<string, string> | undefined>((latest, row) => {
+    if (!latest || rowTimestamp(row) >= rowTimestamp(latest)) return row;
+    return latest;
+  }, undefined);
+}
+
 export async function downloadAndCalculateBalance(fileName: string) {
   const response = await mpFetch(`${RELEASE_REPORT_PATH}/${encodeURIComponent(fileName)}`);
   const csv = await response.text();
@@ -278,7 +290,11 @@ export async function downloadAndCalculateBalance(fileName: string) {
       row.BALANCE_AMOUNT?.trim() &&
       row.RECORD_TYPE?.trim().toLowerCase() !== "total",
   );
-  const lastBalanceRow = rowsWithBalance.at(-1);
+  // Embora os relatórios atuais sejam normalmente cronológicos, escolhemos
+  // pela coluna DATE para não depender da ordem física recebida no CSV. Em
+  // caso de empate, a última linha daquele instante vence (por exemplo, o
+  // `post_payout` depois do débito do saque).
+  const lastBalanceRow = mostRecentRow(rowsWithBalance);
 
   let balance: number;
   if (lastBalanceRow) {
@@ -296,9 +312,11 @@ export async function downloadAndCalculateBalance(fileName: string) {
     }
   }
 
-  const lastMovement = [...rows]
-    .reverse()
-    .find((row) => row.DATE?.trim() && row.RECORD_TYPE?.toLowerCase() !== "total");
+  const lastMovement = mostRecentRow(
+    rows.filter(
+      (row) => row.DATE?.trim() && row.RECORD_TYPE?.toLowerCase() !== "total",
+    ),
+  );
 
   return {
     balance: Math.round(balance * 100) / 100,
@@ -335,10 +353,11 @@ export async function syncLatestMercadoPagoReport(
     if (existingError) throw new Error(existingError.message);
 
     const result = await downloadAndCalculateBalance(fileName);
+    const observedAt =
+      result.lastMovementAt ?? latest.end_date ?? new Date().toISOString();
     const snapshot = {
       balance: result.balance,
-      observed_at:
-        result.lastMovementAt ?? latest.end_date ?? new Date().toISOString(),
+      observed_at: observedAt,
       raw_payload: {
         report_id: latest.id,
         file_name: fileName,
@@ -374,6 +393,22 @@ export async function syncLatestMercadoPagoReport(
       imported = true;
       balance = result.balance;
     }
+
+    // Relatórios diferentes podem terminar na mesma movimentação. Versões
+    // antigas do parser salvaram 0,00 ao ler a linha `total`, deixando dois
+    // snapshots com o mesmo observed_at e valores diferentes. Além de usar
+    // created_at como desempate nas telas, reparamos esses registros antigos
+    // quando o relatório mais recente comprova o saldo daquela movimentação.
+    const { data: repairedSnapshots, error: repairError } = await supabase
+      .from("wallet_snapshots")
+      .update({ balance: result.balance })
+      .eq("household_id", householdId)
+      .eq("source", "mercado_pago")
+      .eq("observed_at", observedAt)
+      .neq("balance", result.balance)
+      .select("id");
+    if (repairError) throw new Error(repairError.message);
+    if ((repairedSnapshots ?? []).length > 0) imported = true;
   }
 
   const newestTaskAt = tasks[0] ? reportTimestamp(tasks[0]) : 0;

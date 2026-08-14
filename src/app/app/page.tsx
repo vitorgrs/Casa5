@@ -26,7 +26,7 @@ export default async function DashboardPage() {
   const [expenseResult, walletResult, membersResult, logsResult, choresResult] = await Promise.all([
     supabase.from("expenses").select("id,title,category,due_date,amount,status,estimated,expense_shares(id,amount,payment_status,member:household_members(id,name,initials,color_key))").eq("household_id", profile.household_id).eq("reference_month", refMonth).order("due_date", { ascending: true, nullsFirst: false }),
     canViewWallet
-      ? supabase.from("wallet_snapshots").select("balance,source,observed_at").eq("household_id", profile.household_id).order("observed_at", { ascending: false }).limit(1).maybeSingle()
+      ? supabase.from("wallet_snapshots").select("balance,source,observed_at,created_at").eq("household_id", profile.household_id).order("observed_at", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle()
       : Promise.resolve({ data: null }),
     supabase.from("household_members").select("id,name,initials,color_key").eq("household_id", profile.household_id).eq("active", true).order("display_order"),
     supabase.from("chore_logs").select("id,member_id,points_awarded,reference_date,completed_at,chore:chores(title)").gte("reference_date", weekAgo.toISOString().slice(0, 10)).order("completed_at", { ascending: false }),

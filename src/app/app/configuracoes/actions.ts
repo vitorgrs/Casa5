@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { currency } from "@/lib/format";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
 import { PERMISSION_CATALOG } from "@/lib/permissions";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -55,8 +56,12 @@ export async function syncMercadoPago() {
     revalidatePath("/app/configuracoes");
 
     let message: string;
+    const formattedBalance =
+      result.balance === null ? null : currency.format(result.balance);
     if (result.imported) {
-      message = "Novo relatório importado com sucesso.";
+      message = formattedBalance
+        ? `Relatório processado com sucesso. Saldo identificado: ${formattedBalance}.`
+        : "Novo relatório importado com sucesso.";
     } else if (result.requestDetail) {
       message = `O Mercado Pago recusou a criação do relatório. ${result.requestDetail}`;
     } else if (result.requested) {
@@ -66,7 +71,9 @@ export async function syncMercadoPago() {
       message =
         "O relatório mais recente ainda está sendo processado pelo Mercado Pago. Aguarde e sincronize novamente mais tarde.";
     } else if (result.latestReportReady) {
-      message = "Nenhum relatório novo encontrado desde a última sincronização.";
+      message = formattedBalance
+        ? `O relatório mais recente já estava importado. Saldo confirmado: ${formattedBalance}.`
+        : "Nenhum relatório novo encontrado desde a última sincronização.";
     } else {
       message =
         "Ainda não há arquivo pronto para importar. O Mercado Pago já recebeu a solicitação; aguarde a disponibilização do relatório.";

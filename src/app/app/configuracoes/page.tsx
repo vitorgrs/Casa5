@@ -26,6 +26,7 @@ export default async function SettingsPage({
         .select("id,balance,source,external_id,observed_at,created_at")
         .eq("household_id", profile.household_id)
         .order("observed_at", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(12)
     : { data: [] as { id: string; balance: number; source: string; external_id: string | null; observed_at: string; created_at: string }[] };
   const latest = snapshots?.[0];
