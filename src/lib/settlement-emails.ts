@@ -269,7 +269,12 @@ export async function runOpenSettlementEmails(
       appUrl,
     });
     try {
-      await sendEmail({ to: candidate.debtor.email!, subject, html });
+      await sendEmail({
+        to: candidate.debtor.email!,
+        subject,
+        html,
+        tags: ["casa5-acerto-contas"],
+      });
       sent += 1;
     } catch (error) {
       failures.push({
@@ -279,7 +284,7 @@ export async function runOpenSettlementEmails(
     }
   }
 
-  let message = `${sent} de ${candidates.length} devedor(es) avisado(s), com ${settlements} acerto(s) detalhado(s).`;
+  let message = `O Brevo aceitou ${sent} de ${candidates.length} envio(s) para processamento, com ${settlements} acerto(s) detalhado(s). Isso ainda não confirma a entrega; acompanhe em Brevo > Transacional > Logs.`;
   if (failures.length > 0) {
     message += ` ${failures.length} envio(s) falharam — ${failures[0].error}`;
   }

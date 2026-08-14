@@ -13,6 +13,7 @@ type SendEmailInput = {
   to: string;
   subject: string;
   html: string;
+  tags?: string[];
 };
 
 export type SettlementEmailPurchase = {
@@ -61,7 +62,7 @@ export function emailConfigured() {
   return Boolean(process.env.BREVO_API_KEY && process.env.BREVO_FROM_EMAIL);
 }
 
-export async function sendEmail({ to, subject, html }: SendEmailInput) {
+export async function sendEmail({ to, subject, html, tags }: SendEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
   const fromEmail = process.env.BREVO_FROM_EMAIL;
   const fromName = process.env.BREVO_FROM_NAME?.trim() || "Casa Cinco";
@@ -83,6 +84,7 @@ export async function sendEmail({ to, subject, html }: SendEmailInput) {
       to: [{ email: to }],
       subject,
       htmlContent: html,
+      tags,
     }),
   });
 
@@ -91,7 +93,12 @@ export async function sendEmail({ to, subject, html }: SendEmailInput) {
     throw new Error(`Brevo ${response.status}: ${body.slice(0, 500)}`);
   }
 
-  return (await response.json()) as { messageId: string };
+  const result = (await response.json()) as { messageId?: string };
+  if (!result.messageId) {
+    throw new Error("O Brevo aceitou a chamada, mas não devolveu o identificador do envio.");
+  }
+
+  return { messageId: result.messageId };
 }
 
 export function expenseReminderEmail(params: {

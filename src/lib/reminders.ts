@@ -120,7 +120,12 @@ export async function runExpenseReminders(
         appUrl,
       });
       try {
-        await sendEmail({ to: member.email, subject, html });
+        await sendEmail({
+          to: member.email,
+          subject,
+          html,
+          tags: ["casa5-lembrete-vencimento"],
+        });
         sent += 1;
       } catch (error) {
         failures.push({
@@ -138,7 +143,7 @@ export async function runExpenseReminders(
     }
   }
 
-  let message = `${sent} de ${candidates} lembrete(s) enviado(s).`;
+  let message = `O Brevo aceitou ${sent} de ${candidates} lembrete(s) para processamento. Isso ainda não confirma a entrega; acompanhe em Brevo > Transacional > Logs.`;
   if (skippedAlreadySent > 0) {
     message += ` ${skippedAlreadySent} já tinham sido avisados hoje.`;
   }
