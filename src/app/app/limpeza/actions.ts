@@ -2,98 +2,134 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin, requirePermission } from "@/lib/auth";
+import { requireActiveProfile, requireAdmin } from "@/lib/auth";
+import { isIsoDate, STANDARD_DAILY_TASKS } from "@/lib/chore-rotation";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
   return value.startsWith("/app") ? value : fallback;
 }
 
-function pathOf(url: string) {
-  return url.split("?")[0] || "/app";
+function withMessage(url: string, kind: "success" | "error", message: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}${kind}=${encodeURIComponent(message)}&updated=${Date.now()}`;
 }
 
-export async function createChore(formData: FormData) {
-  const returnTo = destination(formData, "/app/limpeza");
-  const { profile, supabase } = await requirePermission("manage_chores");
-  const memberIds = formData.getAll("members").map(String);
-  const { data: chore, error } = await supabase
-    .from("chores")
-    .insert({
-      household_id: profile.household_id,
-      title: String(formData.get("title") ?? "").trim(),
-      description: String(formData.get("description") ?? "") || null,
-      points: Number(formData.get("points") ?? 10),
-      frequency: String(formData.get("frequency") ?? "weekly"),
-      weekday:
-        formData.get("weekday") === "" ? null : Number(formData.get("weekday")),
-      due_time: String(formData.get("due_time") ?? "") || null,
-      created_by: profile.id,
-    })
-    .select("id")
-    .single();
+function withRefresh(url: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}updated=${Date.now()}`;
+}
 
-  if (error || !chore)
-    throw new Error(error?.message ?? "Não foi possível criar a tarefa.");
-  if (memberIds.length) {
-    const { error: assignmentError } = await supabase
-      .from("chore_assignments")
-      .insert(
-        memberIds.map((memberId, index) => ({
-          chore_id: chore.id,
-          member_id: memberId,
-          rotation_order: index + 1,
-        })),
-      );
-    if (assignmentError) throw new Error(assignmentError.message);
+function refreshRotationPages() {
+  revalidatePath("/app/limpeza");
+  revalidatePath("/app/limpeza/rotina");
+  revalidatePath("/app");
+  revalidatePath("/app/eu");
+}
+
+export async function saveDailyRotation(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza/rotina");
+  const { supabase } = await requireAdmin();
+  const startDate = String(formData.get("start_date") ?? "");
+  const memberIds = formData.getAll("member_ids").map(String).filter(Boolean);
+
+  if (!isIsoDate(startDate)) throw new Error("Informe uma data de início válida.");
+  if (memberIds.length === 0) throw new Error("A escala precisa ter moradores.");
+
+  const { error } = await supabase.rpc("set_daily_rotation", {
+    rotation_start_date: startDate,
+    ordered_member_ids: memberIds,
+  });
+  if (error) throw new Error(error.message);
+
+  refreshRotationPages();
+  redirect(withMessage(returnTo, "success", "Ordem da escala atualizada."));
+}
+
+export async function requestDaySwap(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza");
+  const { supabase } = await requireActiveProfile();
+  const requesterDate = String(formData.get("requester_date") ?? "");
+  const targetDate = String(formData.get("target_date") ?? "");
+
+  if (!isIsoDate(requesterDate) || !isIsoDate(targetDate)) {
+    throw new Error("Selecione duas datas válidas para a troca.");
   }
 
-  revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
-}
-
-export async function checkInChore(formData: FormData) {
-  const returnTo = destination(formData, "/app/limpeza");
-  const { profile, supabase } = await requirePermission("manage_chores");
-  const choreId = String(formData.get("chore_id"));
-  const memberId = String(formData.get("member_id"));
-  const referenceDate = String(
-    formData.get("reference_date") ?? new Date().toISOString().slice(0, 10),
-  );
-  const { data: chore } = await supabase
-    .from("chores")
-    .select("points,title")
-    .eq("id", choreId)
-    .single();
-  if (!chore) throw new Error("Tarefa não encontrada.");
-
-  const { error } = await supabase.from("chore_logs").upsert(
-    {
-      chore_id: choreId,
-      member_id: memberId,
-      reference_date: referenceDate,
-      completed_at: new Date().toISOString(),
-      points_awarded: chore.points,
-      note: String(formData.get("note") ?? "") || null,
-      created_by: profile.id,
-    },
-    { onConflict: "chore_id,member_id,reference_date" },
-  );
+  const { error } = await supabase.rpc("request_chore_day_swap", {
+    target_requester_date: requesterDate,
+    target_target_date: targetDate,
+  });
   if (error) throw new Error(error.message);
 
-  revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  refreshRotationPages();
+  redirect(withMessage(returnTo, "success", "Troca enviada para aprovação do administrador."));
 }
 
-export async function deleteChore(formData: FormData) {
-  const returnTo = destination(formData, "/app/limpeza");
-  const { profile, supabase } = await requireAdmin();
-  const { error } = await supabase
-    .from("chores")
-    .delete()
-    .eq("id", String(formData.get("chore_id")))
-    .eq("household_id", profile.household_id);
+export async function reviewDaySwap(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza/rotina");
+  const { supabase } = await requireAdmin();
+  const requestId = String(formData.get("request_id") ?? "");
+  const decision = String(formData.get("decision") ?? "reject");
+
+  if (!requestId) throw new Error("Solicitação não informada.");
+  const approved = decision === "approve";
+  const { error } = await supabase.rpc("review_chore_day_swap", {
+    target_request_id: requestId,
+    approve_request: approved,
+  });
   if (error) throw new Error(error.message);
-  revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+
+  refreshRotationPages();
+  redirect(
+    withMessage(
+      returnTo,
+      "success",
+      approved ? "Troca aprovada e aplicada ao calendário." : "Troca recusada.",
+    ),
+  );
+}
+
+export async function toggleDailyTaskCompletion(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza");
+  const { supabase } = await requireActiveProfile();
+  const date = String(formData.get("reference_date") ?? "");
+  const taskKey = String(formData.get("task_key") ?? "");
+  const completed = String(formData.get("completed") ?? "0") === "1";
+
+  if (!isIsoDate(date)) throw new Error("Data inválida.");
+  if (!STANDARD_DAILY_TASKS.some((task) => task.key === taskKey)) {
+    throw new Error("Tarefa padrão inválida.");
+  }
+
+  const { error } = await supabase.rpc("toggle_daily_chore_completion", {
+    target_date: date,
+    target_task_key: taskKey,
+    mark_completed: completed,
+  });
+  if (error) throw new Error(error.message);
+
+  refreshRotationPages();
+  redirect(withRefresh(returnTo));
+}
+
+export async function recordDailyExtraTask(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza");
+  const { supabase } = await requireActiveProfile();
+  const date = String(formData.get("reference_date") ?? "");
+  const title = String(formData.get("title") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+
+  if (!isIsoDate(date)) throw new Error("Data inválida.");
+  if (!title) throw new Error("Informe a tarefa realizada.");
+
+  const { error } = await supabase.rpc("record_daily_extra_task", {
+    target_date: date,
+    task_title: title,
+    task_description: description || null,
+  });
+  if (error) throw new Error(error.message);
+
+  refreshRotationPages();
+  redirect(withMessage(returnTo, "success", "Tarefa extra registrada."));
 }

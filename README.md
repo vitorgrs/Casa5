@@ -17,8 +17,8 @@ Aplicação privada para gerenciar as despesas, pagamentos e rotinas de limpeza 
 - Luz, gás e internet cadastrados como despesas previstas com valor e vencimento a definir.
 - Integração server-side com os relatórios oficiais de saldo disponível do Mercado Pago.
 - Registro manual de saldo como contingência.
-- Tarefas de limpeza com pontos, ranking semanal, sequência de dias e histórico.
-- Rodízio semanal sugerido automaticamente.
+- Escala diária rotativa entre todos os moradores, exibida em calendário.
+- Tarefas padrão diárias, tarefas extras e trocas de dia com aprovação administrativa.
 - Automação diária gratuita na Vercel para atrasos, recorrências e Mercado Pago.
 - Banco protegido com Row Level Security (RLS).
 - Layout responsivo, escuro e tecnológico.
@@ -173,15 +173,17 @@ A rota exige o cabeçalho `Authorization: Bearer <CRON_SECRET>`.
 3. Cada morador consulta quanto precisa enviar.
 4. Após receber o Pix na conta do Mercado Pago, o Vitor marca o pagamento individual como pago.
 5. O painel mostra total previsto, recebido, pendente e saldo da conta.
-6. Na área **Casa em dia**, o Vitor registra quem concluiu cada limpeza.
-7. O ranking e a sequência são atualizados automaticamente.
+6. Na área **Casa em dia**, cada morador consulta seus dias, conclui as
+   tarefas padrão e pode registrar tarefas extras.
+7. Quando necessário, o responsável solicita a troca de um dia futuro; o
+   administrador aprova ou recusa em **Administrar escala**.
 
 ## Estrutura principal
 
 ```text
 src/app/app/                 páginas autenticadas
 src/app/app/despesas/        despesas, divisões e pagamentos
-src/app/app/limpeza/         tarefas, pontos, ranking e check-ins
+src/app/app/limpeza/         calendário, escala diária, tarefas e trocas
 src/app/app/moradores/       e-mails e liberação de acesso
 src/app/app/configuracoes/   saldo e Mercado Pago
 src/app/api/cron/daily/      automação diária
@@ -225,13 +227,12 @@ Painel pessoal com: despesas por mês (destacando o que ainda não foi pago),
 reembolsos pendentes, tarefas do calendário do Casa em dia designadas à
 pessoa e pendências gerais da Organização.
 
-### 4. Casa em dia — calendário (`/app/limpeza/calendario`)
+### 4. Casa em dia — calendário (`/app/limpeza`)
 
-Calendário mensal clicável: clique em um dia para ver as tarefas registradas
-nele ou cadastrar uma nova, com título e uma ou mais pessoas responsáveis.
-O "responsável sugerido automaticamente por rodízio" foi removido do rodízio
-de tarefas fixas — agora quem registra o check-in escolhe manualmente o
-morador.
+Calendário mensal clicável com um responsável por dia. A escala segue a ordem
+definida pelo administrador, começa na data configurada e volta ao primeiro
+morador depois do último. Ao abrir um dia, aparecem as tarefas padrão, as
+tarefas extras e, para dias futuros do próprio morador, a solicitação de troca.
 
 ### 5. Organização (`/app/organizacao`)
 
@@ -348,15 +349,14 @@ Ela cria:
 - Botão "Cancelar" adicionado aos formulários de nova/editar despesa, nova
   tarefa (Organização e calendário do Casa em dia), lançar compra.
 
-### 4. Casa em dia — redesenho
+### 4. Casa em dia — escala diária
 
-- A página principal agora mostra o **calendário do mês** no lugar do
-  quadro de tarefas sugeridas. Clique em um dia para abrir um modal grande
-  com as tarefas daquele dia: título, descrição e quem fez (um ou mais
-  moradores).
-- O rodízio fixo de tarefas recorrentes (limpeza do banheiro, área comum
-  etc.) continua existindo, agora em **Casa em dia → Rodízio fixo**
-  (`/app/limpeza/rotina`).
+- A página principal contém somente o calendário mensal e o detalhe do dia,
+  sem pontos, sequência ou ranking.
+- Todos os dias incluem a verificação do lixo da cozinha, dos três banheiros
+  e o enchimento das garrafas de água.
+- **Casa em dia → Administrar escala** (`/app/limpeza/rotina`) permite ao
+  administrador ordenar os moradores e analisar solicitações de troca.
 
 ### 5. Botões padronizados
 
@@ -567,3 +567,17 @@ supabase/migrations/014_fix_ambiguous_shopping_payment_columns.sql
 Essa migração mantém o fluxo de pagamentos parciais e substitui as variáveis
 conflitantes da função por nomes que não podem ser confundidos com as colunas
 da tabela.
+
+## Atualização: escala diária e trocas
+
+Depois da migração 014, rode:
+
+```text
+supabase/migrations/015_daily_house_rotation.sql
+```
+
+A migração cria a ordem diária dos moradores, inicia a escala no dia seguinte
+à execução, grava a conclusão das cinco tarefas padrão e adiciona solicitações
+de troca com aprovação administrativa. A ordem inicial acompanha a ordem atual
+da tela **Moradores** e pode ser alterada em **Casa em dia → Administrar
+escala**.

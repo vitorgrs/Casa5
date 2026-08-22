@@ -32,8 +32,8 @@ export default async function LoginPage({
             </div>
             <div className="feature-card">
               <SparkIcon />
-              <strong>Limpeza gamificada</strong>
-              <span>Pontos, sequência e ranking da casa.</span>
+              <strong>Escala sem confusão</strong>
+              <span>Responsável do dia, tarefas padrão e trocas aprovadas.</span>
             </div>
             <div className="feature-card">
               <CheckIcon />

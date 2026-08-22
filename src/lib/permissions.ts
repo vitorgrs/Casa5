@@ -17,11 +17,6 @@ export const PERMISSION_CATALOG: { key: PermissionKey; label: string; descriptio
     description: "Visualizar o saldo consolidado da conta compartilhada e o histórico de sincronizações.",
   },
   {
-    key: "manage_chores",
-    label: "Gerenciar Casa em dia",
-    description: "Criar tarefas de limpeza/rotina, registrar check-ins e apagar tarefas.",
-  },
-  {
     key: "manage_tasks",
     label: "Gerenciar organização e calendário",
     description: "Criar, editar e apagar tarefas do calendário e da página de organização (pendências gerais).",

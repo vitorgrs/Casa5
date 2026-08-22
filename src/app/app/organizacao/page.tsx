@@ -293,7 +293,6 @@ export default async function OrganizacaoPage({
             quantity_planned: item.quantity_planned,
           }))}
           members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
-          currentMemberId={profile.member_id}
           canManage={canManageShopping}
           redirectTo={baseRoute}
         />

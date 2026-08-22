@@ -39,13 +39,11 @@ function numberFromInput(value: string) {
 export function ShoppingListManager({
   items,
   members,
-  currentMemberId,
   canManage,
   redirectTo,
 }: {
   items: ShoppingItem[];
   members: Member[];
-  currentMemberId: string | null;
   canManage: boolean;
   redirectTo: string;
 }) {
@@ -233,7 +231,7 @@ export function ShoppingListManager({
 
             <label className="field">
               Quem pagou a compra inteira?
-              <select name="paid_by_member_id" required defaultValue={currentMemberId ?? ""}>
+              <select name="paid_by_member_id" required defaultValue="">
                 <option value="" disabled>Selecione o pagador</option>
                 {members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
               </select>

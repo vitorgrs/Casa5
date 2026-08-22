@@ -19,6 +19,11 @@ function pathOf(url: string) {
   return url.split("?")[0] || "/app";
 }
 
+function withRefresh(url: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}updated=${Date.now()}`;
+}
+
 function decimal(value: FormDataEntryValue | null): number | null {
   let text = String(value ?? "").trim().replace(/\s/g, "");
   if (!text) return null;
@@ -97,7 +102,7 @@ export async function createTask(formData: FormData) {
   }
 
   revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function toggleTaskAssignee(formData: FormData) {
@@ -116,7 +121,7 @@ export async function toggleTaskAssignee(formData: FormData) {
   if (error) throw new Error(error.message);
 
   revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function deleteTask(formData: FormData) {
@@ -129,7 +134,7 @@ export async function deleteTask(formData: FormData) {
     .eq("household_id", profile.household_id);
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 // ----------------------------------------------------------------------
@@ -155,7 +160,9 @@ export async function addShoppingItem(formData: FormData) {
   });
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  redirect(
+    `${pathOf(returnTo)}?success=${encodeURIComponent("Item adicionado à lista.")}&updated=${Date.now()}`,
+  );
 }
 
 export async function toggleShoppingChecked(formData: FormData) {
@@ -176,7 +183,7 @@ export async function toggleShoppingChecked(formData: FormData) {
     .in("status", ["list", "checked"]);
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function updateShoppingItem(formData: FormData) {
@@ -198,7 +205,7 @@ export async function updateShoppingItem(formData: FormData) {
     .in("status", ["list", "checked"]);
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function recordShoppingPurchase(formData: FormData) {
@@ -235,7 +242,7 @@ export async function recordShoppingPurchase(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
   revalidatePath("/app/eu");
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function resetShoppingPurchase(formData: FormData) {
@@ -258,7 +265,7 @@ export async function resetShoppingPurchase(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
   revalidatePath("/app/eu");
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function removeItemFromShoppingPurchase(formData: FormData) {
@@ -292,7 +299,7 @@ export async function deleteShoppingItem(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath(pathOf(returnTo));
   revalidatePath("/app/eu");
-  redirect(returnTo);
+  redirect(withRefresh(returnTo));
 }
 
 export async function uploadShoppingNetReceipt(

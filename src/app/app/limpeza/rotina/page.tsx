@@ -1,36 +1,38 @@
 import Link from "next/link";
-import { ArrowIcon, CheckIcon, PlusIcon } from "@/components/icons";
+import { ArrowIcon, SettingsIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
-import { can, requireActiveProfile } from "@/lib/auth";
-import { checkInChore, createChore, deleteChore } from "../actions";
+import { requireAdmin } from "@/lib/auth";
+import { addDays, formatHouseDate, todayIso } from "@/lib/chore-rotation";
+import { reviewDaySwap } from "../actions";
+import { RotationOrderEditor } from "./rotation-order-editor";
 
-const weekdays = [
-  "domingo",
-  "segunda",
-  "terça",
-  "quarta",
-  "quinta",
-  "sexta",
-  "sábado",
-];
-const frequencies: Record<string, string> = {
-  daily: "Diária",
-  weekly: "Semanal",
-  monthly: "Mensal",
-  one_time: "Avulsa",
+export const dynamic = "force-dynamic";
+
+const statusLabels: Record<string, string> = {
+  pending: "Aguardando aprovação",
+  approved: "Aprovada",
+  rejected: "Recusada",
 };
 
-export default async function ChoreRotationPage({
+export default async function RotationAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ novo?: string }>;
+  searchParams: Promise<{ success?: string; error?: string; updated?: string }>;
 }) {
   const params = await searchParams;
-  const baseRoute = "/app/limpeza/rotina";
-  const { profile, supabase } = await requireActiveProfile();
-  const canManageChores = can(profile, "manage_chores");
+  const { profile, supabase } = await requireAdmin();
 
-  const [{ data: members }, { data: chores }] = await Promise.all([
+  const [
+    { data: settings },
+    { data: members },
+    { data: rotationRows },
+    { data: swaps },
+  ] = await Promise.all([
+    supabase
+      .from("daily_rotation_settings")
+      .select("start_date,updated_at")
+      .eq("household_id", profile.household_id)
+      .maybeSingle(),
     supabase
       .from("household_members")
       .select("id,name,initials,color_key,display_order")
@@ -38,191 +40,163 @@ export default async function ChoreRotationPage({
       .eq("active", true)
       .order("display_order"),
     supabase
-      .from("chores")
+      .from("daily_rotation_members")
+      .select("member_id,rotation_order")
+      .eq("household_id", profile.household_id)
+      .order("rotation_order"),
+    supabase
+      .from("chore_day_swap_requests")
       .select(
-        "id,title,description,points,frequency,weekday,due_time,active,chore_assignments(member_id,rotation_order,member:household_members(id,name,initials,color_key))",
+        "id,requester_member_id,requester_date,target_member_id,target_date,status,created_at,reviewed_at,review_note",
       )
       .eq("household_id", profile.household_id)
-      .eq("active", true)
-      .order("created_at"),
+      .order("created_at", { ascending: false }),
   ]);
+
+  const memberMap = new Map((members ?? []).map((member) => [member.id, member]));
+  const rotationOrder = new Map(
+    (rotationRows ?? []).map((row) => [row.member_id, row.rotation_order]),
+  );
+  const orderedMembers = [...(members ?? [])].sort(
+    (first, second) =>
+      (rotationOrder.get(first.id) ?? first.display_order) -
+      (rotationOrder.get(second.id) ?? second.display_order),
+  );
+  const pendingSwaps = (swaps ?? []).filter((swap) => swap.status === "pending");
+  const reviewedSwaps = (swaps ?? []).filter((swap) => swap.status !== "pending");
+  const defaultStartDate = settings?.start_date ?? addDays(todayIso(), 1);
 
   return (
     <>
       <div className="page-head">
         <div>
-          <span className="eyebrow">Casa em dia</span>
-          <h1>Rodízio fixo</h1>
-          <p>
-            Tarefas recorrentes divididas entre os moradores (ex.: limpeza do
-            banheiro toda semana). Para tarefas pontuais com data específica,
-            use o calendário.
-          </p>
+          <span className="eyebrow">Administração • Casa em dia</span>
+          <h1>Configurar escala diária</h1>
+          <p>Defina a ordem dos moradores e aprove ou recuse pedidos de troca.</p>
         </div>
         <div className="page-actions">
           <Link className="button ghost" href="/app/limpeza">
-            <ArrowIcon /> Voltar
+            <ArrowIcon /> Voltar ao calendário
           </Link>
-          {canManageChores && (
-            <Link className="button primary" href={`${baseRoute}?novo=1`}>
-              <PlusIcon /> Nova tarefa fixa
-            </Link>
-          )}
         </div>
       </div>
 
-      {params.novo === "1" && canManageChores && (
-        <section className="card pad" style={{ marginTop: 16 }}>
-          <div
-            className="card-head"
-            style={{ padding: 0, paddingBottom: 16, marginBottom: 18 }}
-          >
-            <h2>Criar tarefa fixa</h2>
-            <Link href={baseRoute} className="button ghost small">
-              Fechar
-            </Link>
-          </div>
-          <form action={createChore}>
-            <input type="hidden" name="redirect_to" value={baseRoute} />
-            <div className="form-grid cols-3">
-              <label className="field span-2">
-                Nome da tarefa
-                <input name="title" required placeholder="Ex.: Limpar a geladeira" />
-              </label>
-              <label className="field">
-                Pontos
-                <input name="points" type="number" min="1" defaultValue="15" required />
-              </label>
-              <label className="field">
-                Frequência
-                <select name="frequency" defaultValue="weekly">
-                  <option value="daily">Diária</option>
-                  <option value="weekly">Semanal</option>
-                  <option value="monthly">Mensal</option>
-                  <option value="one_time">Avulsa</option>
-                </select>
-              </label>
-              <label className="field">
-                Dia da semana
-                <select name="weekday" defaultValue="">
-                  <option value="">Não definido</option>
-                  {weekdays.map((day, index) => (
-                    <option value={index} key={day}>
-                      {day}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Horário sugerido
-                <input name="due_time" type="time" />
-              </label>
-              <label className="field span-3">
-                Descrição
-                <textarea name="description" placeholder="O que deve ser feito para a tarefa contar como concluída?" />
-              </label>
-              <div className="form-section span-3">
-                <h4>Quem participa do rodízio?</h4>
-                <div className="member-check-grid">
-                  {(members ?? []).map((member) => (
-                    <label className="member-check" key={member.id}>
-                      <input type="checkbox" name="member_ids" value={member.id} defaultChecked />
-                      <span>{member.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="form-actions">
-              <SubmitButton pendingLabel="Criando...">Criar tarefa</SubmitButton>
-              <Link className="button ghost" href={baseRoute}>
-                Cancelar
-              </Link>
-            </div>
-          </form>
-        </section>
-      )}
+      {params.success && <div className="message success">{params.success}</div>}
+      {params.error && <div className="message error">{params.error}</div>}
 
-      <div className="chore-grid" style={{ marginTop: 16 }}>
-        {(chores ?? []).map((chore) => {
-          const assignments = [...(chore.chore_assignments ?? [])].sort(
-            (a, b) => a.rotation_order - b.rotation_order,
-          );
-          return (
-            <article className="chore-card" key={chore.id}>
-              <div className="chore-card-head">
-                <div>
-                  <h3>{chore.title}</h3>
-                  <p>{chore.description ?? "Tarefa recorrente da casa."}</p>
-                </div>
-                <span className="points-chip">+{chore.points} pts</span>
-              </div>
-              <div className="assignee-list">
-                {assignments.map((assignment) => {
-                  const member = Array.isArray(assignment.member) ? assignment.member[0] : assignment.member;
-                  return (
-                    <div
-                      className={`avatar avatar-${member?.color_key ?? "violet"}`}
-                      title={member?.name}
-                      key={assignment.member_id}
-                    >
-                      {member?.initials ?? "?"}
+      <div className="rotation-admin-grid">
+        <section className="card pad">
+          <div className="card-head rotation-admin-card-head">
+            <div>
+              <h2>Ordem do rodízio</h2>
+              <span className="muted-text">Use as setas para definir quem vem depois de quem.</span>
+            </div>
+            <SettingsIcon />
+          </div>
+          <RotationOrderEditor
+            initialMembers={orderedMembers.map((member) => ({
+              id: member.id,
+              name: member.name,
+              initials: member.initials,
+              color_key: member.color_key,
+            }))}
+            startDate={defaultStartDate}
+          />
+        </section>
+
+        <section className="card">
+          <div className="card-head">
+            <div>
+              <h2>Trocas pendentes</h2>
+              <span className="muted-text">
+                {pendingSwaps.length} solicitação(ões) aguardando análise.
+              </span>
+            </div>
+            <span className="status-pill warning">{pendingSwaps.length}</span>
+          </div>
+          <div className="swap-admin-list">
+            {pendingSwaps.map((swap) => {
+              const requester = memberMap.get(swap.requester_member_id);
+              const target = memberMap.get(swap.target_member_id);
+              return (
+                <article className="swap-admin-row" key={swap.id}>
+                  <div className="swap-admin-person">
+                    <div className={`avatar avatar-${requester?.color_key ?? "violet"}`}>
+                      {requester?.initials ?? "?"}
                     </div>
-                  );
-                })}
-              </div>
-              <div className="chore-foot">
-                <span>
-                  {frequencies[chore.frequency]}
-                  {chore.weekday !== null ? ` • ${weekdays[chore.weekday]}` : ""}
-                </span>
-              </div>
-              {canManageChores && (
-                <details className="details-editor" style={{ margin: "14px -16px -16px" }}>
-                  <summary>
-                    <CheckIcon style={{ verticalAlign: "middle", marginRight: 6 }} /> Registrar conclusão
-                  </summary>
-                  <div className="editor-body">
-                    <form action={checkInChore} className="stack-form" style={{ marginTop: 0 }}>
-                      <input type="hidden" name="chore_id" value={chore.id} />
-                      <input type="hidden" name="redirect_to" value={baseRoute} />
-                      <label>
-                        Morador
-                        <select name="member_id" defaultValue={members?.[0]?.id}>
-                          {(members ?? []).map((member) => (
-                            <option value={member.id} key={member.id}>
-                              {member.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Data
-                        <input name="reference_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
-                      </label>
-                      <label>
-                        Observação
-                        <input name="note" placeholder="Opcional" />
-                      </label>
-                      <SubmitButton pendingLabel="Salvando...">Confirmar check-in</SubmitButton>
+                    <div>
+                      <strong>{requester?.name ?? "Morador"}</strong>
+                      <small>{formatHouseDate(swap.requester_date)}</small>
+                    </div>
+                  </div>
+                  <span className="swap-arrow">⇄</span>
+                  <div className="swap-admin-person">
+                    <div className={`avatar avatar-${target?.color_key ?? "cyan"}`}>
+                      {target?.initials ?? "?"}
+                    </div>
+                    <div>
+                      <strong>{target?.name ?? "Morador"}</strong>
+                      <small>{formatHouseDate(swap.target_date)}</small>
+                    </div>
+                  </div>
+                  <div className="swap-review-actions">
+                    <form action={reviewDaySwap}>
+                      <input type="hidden" name="request_id" value={swap.id} />
+                      <input type="hidden" name="decision" value="approve" />
+                      <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                      <SubmitButton className="button primary small" pendingLabel="Aprovando...">
+                        Aprovar
+                      </SubmitButton>
                     </form>
-                    <form action={deleteChore} style={{ marginTop: 10 }}>
-                      <input type="hidden" name="chore_id" value={chore.id} />
-                      <input type="hidden" name="redirect_to" value={baseRoute} />
-                      <SubmitButton className="button danger small" pendingLabel="Excluindo...">
-                        Excluir tarefa
+                    <form action={reviewDaySwap}>
+                      <input type="hidden" name="request_id" value={swap.id} />
+                      <input type="hidden" name="decision" value="reject" />
+                      <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                      <SubmitButton className="button danger small" pendingLabel="Recusando...">
+                        Recusar
                       </SubmitButton>
                     </form>
                   </div>
-                </details>
-              )}
-            </article>
-          );
-        })}
-        {(chores ?? []).length === 0 && (
-          <div className="card empty">Nenhuma tarefa fixa cadastrada ainda.</div>
-        )}
+                </article>
+              );
+            })}
+            {pendingSwaps.length === 0 && (
+              <div className="empty">Nenhuma troca aguardando aprovação.</div>
+            )}
+          </div>
+        </section>
       </div>
+
+      {reviewedSwaps.length > 0 && (
+        <section className="card" style={{ marginTop: 16 }}>
+          <div className="card-head">
+            <div>
+              <h2>Histórico de trocas</h2>
+              <span className="muted-text">Últimas decisões administrativas.</span>
+            </div>
+          </div>
+          <div className="list">
+            {reviewedSwaps.slice(0, 20).map((swap) => {
+              const requester = memberMap.get(swap.requester_member_id);
+              const target = memberMap.get(swap.target_member_id);
+              return (
+                <div className="list-row" key={swap.id}>
+                  <div className="item-title">
+                    <strong>{requester?.name ?? "Morador"} ⇄ {target?.name ?? "Morador"}</strong>
+                    <small>
+                      {formatHouseDate(swap.requester_date)} e {formatHouseDate(swap.target_date)}
+                      {swap.review_note ? ` • ${swap.review_note}` : ""}
+                    </small>
+                  </div>
+                  <span className={`status-pill ${swap.status === "approved" ? "success" : "muted"}`}>
+                    {statusLabels[swap.status] ?? swap.status}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </>
   );
 }

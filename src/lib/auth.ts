@@ -5,7 +5,6 @@ export type PermissionKey =
   | "manage_expenses"
   | "mark_expenses_paid"
   | "view_wallet_balance"
-  | "manage_chores"
   | "manage_tasks"
   | "manage_shopping"
   | "manage_members";

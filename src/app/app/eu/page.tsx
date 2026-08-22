@@ -72,7 +72,6 @@ export default async function MyPage({
   const [
     { data: shares },
     { data: reimbursements },
-    { data: choreRotation },
     { data: myTasks },
     { data: shoppingShares },
     { data: shoppingPaidByMe },
@@ -91,11 +90,6 @@ export default async function MyPage({
       .select("id,reimbursement_status,expense:expenses(id,title,reimbursement_amount)")
       .eq("member_id", memberId)
       .neq("reimbursement_status", "not_applicable"),
-    supabase
-      .from("chore_assignments")
-      .select("id,active,chore:chores(id,title,frequency,points,active)")
-      .eq("member_id", memberId)
-      .eq("active", true),
     supabase
       .from("task_assignees")
       .select("id,done,task:tasks(id,title,description,due_date,scope)")
@@ -964,36 +958,6 @@ export default async function MyPage({
           </div>
         </section>
 
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Suas responsabilidades fixas</h2>
-              <span className="muted-text" style={{ fontSize: 10 }}>
-                Tarefas de rodízio do Casa em dia em que você participa.
-              </span>
-            </div>
-            <ChecklistIcon />
-          </div>
-          <div className="list">
-            {(choreRotation ?? []).length === 0 && <div className="empty">Você não está em nenhum rodízio ativo.</div>}
-            {(choreRotation ?? []).map((c) => {
-              const chore = Array.isArray(c.chore) ? c.chore[0] : c.chore;
-              if (!chore?.active) return null;
-              return (
-                <div className="list-row" key={c.id}>
-                  <div className="item-title">
-                    <strong>{chore?.title}</strong>
-                    <small>{chore?.frequency}</small>
-                  </div>
-                  <div className="item-value">
-                    <strong>{chore?.points}</strong>
-                    <small>pontos</small>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
       </div>
     </>
   );
