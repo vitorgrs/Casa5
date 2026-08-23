@@ -8,11 +8,12 @@ import {
   addShoppingItem,
   createTask,
   deleteTask,
-  removeItemFromShoppingPurchase,
-  resetShoppingPurchase,
   toggleTaskAssignee,
 } from "./actions";
-import { ShoppingListManager } from "./shopping-purchase-form";
+import {
+  ShoppingListManager,
+  ShoppingPurchaseMutationForm,
+} from "./shopping-purchase-form";
 
 const purchaseScopeLabels: Record<string, string> = {
   household: "Casa toda",
@@ -311,8 +312,8 @@ export default async function OrganizacaoPage({
             const shares = purchase.shopping_purchase_shares ?? [];
             const purchaseItems = purchase.items ?? [];
             return (
-              <article className="purchase-card" key={purchase.id}>
-                <div className="purchase-summary">
+              <details className="purchase-card purchase-accordion" key={purchase.id}>
+                <summary className="purchase-summary">
                   <div className="item-title">
                     <strong>{purchaseItems.map((item) => item.name).join(", ") || "Compra"}</strong>
                     <small>
@@ -320,111 +321,125 @@ export default async function OrganizacaoPage({
                     </small>
                   </div>
                   <span className="status-pill violet">
-                    {purchaseScopeLabels[purchase.purchase_scope] ?? "Sem rateio"}
+                    {purchaseScopeLabels[purchase.purchase_scope] ?? "Sem divisão"}
                   </span>
                   <div className="item-value">
                     <strong>{currency.format(Number(purchase.total_amount))}</strong>
                     <small>total</small>
                   </div>
+                  <span className="purchase-accordion-toggle">
+                    <span>Detalhes</span>
+                    <b aria-hidden="true">⌄</b>
+                  </span>
+                </summary>
+
+                <div className="purchase-details">
                   {canManageShopping && (
-                    <div className="purchase-actions">
-                      <form action={resetShoppingPurchase}>
-                        <input type="hidden" name="purchase_id" value={purchase.id} />
-                        <input type="hidden" name="redirect_to" value={baseRoute} />
-                        <button className="button ghost small" type="submit">Voltar itens à lista</button>
-                      </form>
+                    <div className="purchase-details-actions">
+                      <ShoppingPurchaseMutationForm
+                        mode="reset-purchase"
+                        purchaseId={purchase.id}
+                        redirectTo={baseRoute}
+                      />
+                    </div>
+                  )}
+
+                  <div className="purchase-items-breakdown">
+                    {purchaseItems.map((item) => (
+                      <div key={item.id}>
+                        <span>{item.name}</span>
+                        <strong>
+                          {item.quantity_bought ?? "—"} × {currency.format(Number(item.unit_price ?? 0))}
+                        </strong>
+                        {canManageShopping && (
+                          <ShoppingPurchaseMutationForm
+                            mode="remove-item"
+                            purchaseId={purchase.id}
+                            itemId={item.id}
+                            redirectTo={baseRoute}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="purchase-payer">
+                    <div>
+                      <span>Pago por</span>
+                      <strong>{paidBy?.name ?? "Pagador não informado"}</strong>
+                    </div>
+                    <div>
+                      <span>PIX para o saldo líquido</span>
+                      <strong>{paidBy?.pix_key ?? "Chave PIX não cadastrada"}</strong>
+                    </div>
+                  </div>
+
+                  {shares.length > 0 && (
+                    <div className="purchase-shares">
+                      <p className="note purchase-shares-note">
+                        Partes desta compra. O valor do Pix é compensado com dívidas no sentido contrário na Minha página.
+                      </p>
+                      {shares.map((share) => {
+                        const member = Array.isArray(share.member) ? share.member[0] : share.member;
+                        const isPayerShare = share.member_id === purchase.paid_by_member_id;
+                        const hasReceipt = Boolean(share.receipt_path);
+                        const isConfirmed = share.payment_status === "paid";
+                        return (
+                          <div className="purchase-share" key={share.id}>
+                            <div className="item-title">
+                              <strong>{member?.name ?? "Morador"}</strong>
+                              <small>{isPayerShare ? "Parte de quem pagou" : `Deve a ${paidBy?.name ?? "quem pagou"}`}</small>
+                            </div>
+                            <div className="item-value">
+                              <strong>{currency.format(Number(share.amount))}</strong>
+                              <small>parte individual</small>
+                            </div>
+                            <span className={`status-pill ${isConfirmed ? "success" : hasReceipt ? "info" : "warning"}`}>
+                              {isConfirmed ? "Quitado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
+                            </span>
+
+                            {hasReceipt && (
+                              <div className="purchase-proof-actions">
+                                {share.receipt_url && (
+                                  <div className="attachment-row">
+                                    <a href={share.receipt_url} target="_blank" rel="noreferrer">
+                                      Ver {share.receipt_name ?? "comprovante"}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
-
-                <div className="purchase-items-breakdown">
-                  {purchaseItems.map((item) => (
-                    <div key={item.id}>
-                      <span>{item.name}</span>
-                      <strong>
-                        {item.quantity_bought ?? "—"} × {currency.format(Number(item.unit_price ?? 0))}
-                      </strong>
-                      {canManageShopping && (
-                        <form action={removeItemFromShoppingPurchase}>
-                          <input type="hidden" name="purchase_id" value={purchase.id} />
-                          <input type="hidden" name="item_id" value={item.id} />
-                          <input type="hidden" name="redirect_to" value={baseRoute} />
-                          <button className="button danger small" type="submit">Retirar da compra</button>
-                        </form>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="purchase-payer">
-                  <div>
-                    <span>Pago por</span>
-                    <strong>{paidBy?.name ?? "Pagador não informado"}</strong>
-                  </div>
-                  <div>
-                    <span>PIX para o saldo líquido</span>
-                    <strong>{paidBy?.pix_key ?? "Chave PIX não cadastrada"}</strong>
-                  </div>
-                </div>
-
-                {shares.length > 0 && (
-                  <div className="purchase-shares">
-                    <p className="note purchase-shares-note">
-                      Partes brutas desta compra. O valor do Pix é compensado com dívidas no sentido contrário na Minha página.
-                    </p>
-                    {shares.map((share) => {
-                      const member = Array.isArray(share.member) ? share.member[0] : share.member;
-                      const isPayerShare = share.member_id === purchase.paid_by_member_id;
-                      const hasReceipt = Boolean(share.receipt_path);
-                      const isConfirmed = share.payment_status === "paid";
-                      return (
-                        <div className="purchase-share" key={share.id}>
-                          <div className="item-title">
-                            <strong>{member?.name ?? "Morador"}</strong>
-                            <small>{isPayerShare ? "Parte de quem pagou" : `Deve a ${paidBy?.name ?? "quem pagou"}`}</small>
-                          </div>
-                          <div className="item-value">
-                            <strong>{currency.format(Number(share.amount))}</strong>
-                            <small>parte individual</small>
-                          </div>
-                          <span className={`status-pill ${isConfirmed ? "success" : hasReceipt ? "info" : "warning"}`}>
-                            {isConfirmed ? "Quitado" : hasReceipt ? "Comprovante enviado" : "PIX pendente"}
-                          </span>
-
-                          {hasReceipt && (
-                            <div className="purchase-proof-actions">
-                              {share.receipt_url && (
-                                <div className="attachment-row">
-                                  <a href={share.receipt_url} target="_blank" rel="noreferrer">
-                                    Ver {share.receipt_name ?? "comprovante"}
-                                  </a>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </article>
+              </details>
             );
           })}
 
           {legacyBought.map((item) => (
-            <article className="purchase-card" key={item.id}>
-              <div className="purchase-summary">
+            <details className="purchase-card purchase-accordion" key={item.id}>
+              <summary className="purchase-summary">
                 <div className="item-title">
                   <strong>{item.name}</strong>
-                  <small>Compra antiga sem rateio consolidado</small>
+                  <small>Compra antiga sem divisão detalhada</small>
                 </div>
                 <span className="status-pill muted">Legado</span>
                 <div className="item-value">
                   <strong>{currency.format(Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0))}</strong>
                   <small>total</small>
                 </div>
+                <span className="purchase-accordion-toggle">
+                  <span>Detalhes</span>
+                  <b aria-hidden="true">⌄</b>
+                </span>
+              </summary>
+              <div className="purchase-legacy-details">
+                Compra antiga registrada antes do detalhamento por compra. Não há divisão consolidada disponível.
               </div>
-            </article>
+            </details>
           ))}
         </div>
       </section>

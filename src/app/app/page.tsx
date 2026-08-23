@@ -6,10 +6,10 @@ import {
   addDays,
   formatHouseDate,
   rotationMemberForDate,
-  STANDARD_DAILY_TASKS,
   todayIso,
   type RotationMember,
   type RotationSwap,
+  type StandardDailyTask,
 } from "@/lib/chore-rotation";
 import { asNumber, currency, daysUntil, monthLabel } from "@/lib/format";
 
@@ -39,6 +39,7 @@ export default async function DashboardPage() {
     settingsResult,
     rotationResult,
     swapsResult,
+    standardTasksResult,
   ] = await Promise.all([
     supabase
       .from("expenses")
@@ -77,6 +78,13 @@ export default async function DashboardPage() {
       .from("chore_day_swap_requests")
       .select("requester_member_id,requester_date,target_member_id,target_date,status")
       .eq("household_id", profile.household_id),
+    supabase
+      .from("daily_standard_tasks")
+      .select("id,task_key,label,description,display_order,active")
+      .eq("household_id", profile.household_id)
+      .eq("active", true)
+      .order("display_order")
+      .order("created_at"),
   ]);
 
   const expenses = expenseResult.data ?? [];
@@ -135,6 +143,7 @@ export default async function DashboardPage() {
     };
   }).filter((row): row is { date: string; member: RotationMember } => Boolean(row.member));
   const nextDuty = upcomingRotation[0] ?? null;
+  const standardTasks = (standardTasksResult.data ?? []) as StandardDailyTask[];
 
   return (
     <>
@@ -311,9 +320,18 @@ export default async function DashboardPage() {
             <h3>Tarefas de todos os dias</h3><CheckIcon />
           </div>
           <div className="daily-summary-list">
-            {STANDARD_DAILY_TASKS.map((task) => (
-              <div key={task.key}><span className="daily-task-check completed"><CheckIcon /></span>{task.label}</div>
+            {standardTasks.map((task) => (
+              <div key={task.task_key}>
+                <span className="daily-task-check completed"><CheckIcon /></span>
+                <span>
+                  <strong>{task.label}</strong>
+                  {task.description && <small>{task.description}</small>}
+                </span>
+              </div>
             ))}
+            {standardTasks.length === 0 && (
+              <div className="empty">Nenhuma tarefa padrão ativa.</div>
+            )}
           </div>
         </section>
       </div>

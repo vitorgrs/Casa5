@@ -1,10 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { SubmitButton } from "@/components/submit-button";
+import { initialFormActionState } from "@/lib/form-action-state";
 import {
   deleteShoppingItem,
   recordShoppingPurchase,
+  removeItemFromShoppingPurchase,
+  resetShoppingPurchase,
   toggleShoppingChecked,
   updateShoppingItem,
 } from "./actions";
@@ -49,12 +53,6 @@ export function ShoppingListManager({
 }) {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [scope, setScope] = useState<PurchaseScope>("household");
-  const [participants, setParticipants] = useState<string[]>(members.map((member) => member.id));
-  const [quantities, setQuantities] = useState<Record<string, string>>(() =>
-    Object.fromEntries(items.map((item) => [item.id, String(item.quantity_planned ?? 1)])),
-  );
-  const [unitPrices, setUnitPrices] = useState<Record<string, string>>({});
 
   const visibleItems = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("pt-BR");
@@ -67,29 +65,11 @@ export function ShoppingListManager({
   }, [items, search]);
 
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
-  const purchaseTotal = selectedItems.reduce(
-    (sum, item) => sum + numberFromInput(quantities[item.id] ?? "0") * numberFromInput(unitPrices[item.id] ?? "0"),
-    0,
-  );
 
   function toggleSelected(itemId: string) {
     setSelectedIds((current) =>
       current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId],
     );
-  }
-
-  function changeScope(nextScope: PurchaseScope) {
-    setScope(nextScope);
-    setParticipants(nextScope === "household" ? members.map((member) => member.id) : []);
-  }
-
-  function toggleParticipant(memberId: string) {
-    setParticipants((current) => {
-      if (scope === "individual") return [memberId];
-      return current.includes(memberId)
-        ? current.filter((id) => id !== memberId)
-        : [...current, memberId];
-    });
   }
 
   return (
@@ -176,121 +156,245 @@ export function ShoppingListManager({
       </div>
 
       {canManage && selectedItems.length > 0 && (
-        <div className="purchase-form-wrap" id="compra">
-          <form action={recordShoppingPurchase} className="stack-form purchase-form">
-            <input type="hidden" name="redirect_to" value={redirectTo} />
-            {selectedItems.map((item) => (
-              <input key={item.id} type="hidden" name="selected_item_ids" value={item.id} />
-            ))}
-
-            <div>
-              <span className="eyebrow">Fechar compra</span>
-              <h3 style={{ margin: "5px 0 0" }}>Valores dos itens selecionados</h3>
-            </div>
-
-            <div className="purchase-item-values">
-              {selectedItems.map((item) => {
-                const subtotal = numberFromInput(quantities[item.id] ?? "0") * numberFromInput(unitPrices[item.id] ?? "0");
-                return (
-                  <div className="purchase-item-value-row" key={item.id}>
-                    <strong>{item.name}</strong>
-                    <label className="field">
-                      Quantidade comprada
-                      <input
-                        name={`quantity_${item.id}`}
-                        inputMode="decimal"
-                        value={quantities[item.id] ?? ""}
-                        onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))}
-                        required
-                      />
-                    </label>
-                    <label className="field">
-                      Valor unitário
-                      <input
-                        name={`unit_price_${item.id}`}
-                        inputMode="decimal"
-                        value={unitPrices[item.id] ?? ""}
-                        onChange={(event) => setUnitPrices((current) => ({ ...current, [item.id]: event.target.value }))}
-                        placeholder="0,00"
-                        required
-                      />
-                    </label>
-                    <div className="item-value">
-                      <strong>{subtotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong>
-                      <small>subtotal</small>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="purchase-total-preview">
-              <span>Total desta compra</span>
-              <strong>{purchaseTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong>
-            </div>
-
-            <label className="field">
-              Quem pagou a compra inteira?
-              <select name="paid_by_member_id" required defaultValue="">
-                <option value="" disabled>Selecione o pagador</option>
-                {members.map((member) => <option value={member.id} key={member.id}>{member.name}</option>)}
-              </select>
-            </label>
-
-            <div className="form-section">
-              <h4>Para quem foi esta compra?</h4>
-              <div className="purchase-scope-grid">
-                {([
-                  ["household", "Casa toda", "Divide entre todos os moradores ativos."],
-                  ["group", "Grupo", "Escolha duas ou mais pessoas."],
-                  ["individual", "Individual", "O valor fica para uma única pessoa."],
-                ] as const).map(([value, title, detail]) => (
-                  <label className={`purchase-scope ${scope === value ? "selected" : ""}`} key={value}>
-                    <input
-                      type="radio"
-                      name="purchase_scope"
-                      value={value}
-                      checked={scope === value}
-                      onChange={() => changeScope(value)}
-                    />
-                    <span><strong>{title}</strong><small>{detail}</small></span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="form-section">
-              <h4>{scope === "household" ? "Participantes incluídos" : "Selecione os participantes"}</h4>
-              <div className="member-check-grid">
-                {members.map((member) => {
-                  const checked = participants.includes(member.id);
-                  return (
-                    <label className={`member-check ${checked ? "selected" : ""}`} key={member.id}>
-                      <input
-                        type={scope === "individual" ? "radio" : "checkbox"}
-                        name={scope === "individual" ? "participant_choice" : undefined}
-                        checked={checked}
-                        disabled={scope === "household"}
-                        onChange={() => toggleParticipant(member.id)}
-                      />
-                      <span>{member.name}</span>
-                      {checked && <input type="hidden" name="participant_ids" value={member.id} />}
-                    </label>
-                  );
-                })}
-              </div>
-              <p className="note">
-                Primeiro somamos todos os itens. Depois o total é dividido igualmente entre os participantes.
-              </p>
-            </div>
-
-            <div className="form-actions">
-              <SubmitButton pendingLabel="Calculando rateio...">Salvar compra e dividir</SubmitButton>
-              <button className="button ghost" type="button" onClick={() => setSelectedIds([])}>Cancelar seleção</button>
-            </div>
-          </form>
-        </div>
+        <PurchaseCheckoutForm
+          key={selectedIds.slice().sort().join(",")}
+          items={selectedItems}
+          members={members}
+          redirectTo={redirectTo}
+          onCancel={() => setSelectedIds([])}
+          onSuccess={() => setSelectedIds([])}
+        />
       )}
     </>
+  );
+}
+
+function PurchaseCheckoutForm({
+  items,
+  members,
+  redirectTo,
+  onCancel,
+  onSuccess,
+}: {
+  items: ShoppingItem[];
+  members: Member[];
+  redirectTo: string;
+  onCancel: () => void;
+  onSuccess: () => void;
+}) {
+  const router = useRouter();
+  const [state, formAction] = useActionState(recordShoppingPurchase, initialFormActionState);
+  const [scope, setScope] = useState<PurchaseScope>("household");
+  const [participants, setParticipants] = useState<string[]>(members.map((member) => member.id));
+  const [quantities, setQuantities] = useState<Record<string, string>>(() =>
+    Object.fromEntries(items.map((item) => [item.id, String(item.quantity_planned ?? 1)])),
+  );
+  const [unitPrices, setUnitPrices] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (state.status !== "success") return;
+    onSuccess();
+    router.refresh();
+  }, [state, onSuccess, router]);
+
+  const purchaseTotal = items.reduce(
+    (sum, item) =>
+      sum +
+      numberFromInput(quantities[item.id] ?? "0") *
+        numberFromInput(unitPrices[item.id] ?? "0"),
+    0,
+  );
+
+  function changeScope(nextScope: PurchaseScope) {
+    setScope(nextScope);
+    setParticipants(nextScope === "household" ? members.map((member) => member.id) : []);
+  }
+
+  function toggleParticipant(memberId: string) {
+    setParticipants((current) => {
+      if (scope === "individual") return [memberId];
+      return current.includes(memberId)
+        ? current.filter((id) => id !== memberId)
+        : [...current, memberId];
+    });
+  }
+
+  return (
+    <div className="purchase-form-wrap" id="compra">
+      <form action={formAction} className="stack-form purchase-form">
+        <input type="hidden" name="redirect_to" value={redirectTo} />
+        {items.map((item) => (
+          <input key={item.id} type="hidden" name="selected_item_ids" value={item.id} />
+        ))}
+
+        <div>
+          <span className="eyebrow">Registrar compra</span>
+          <h3 style={{ margin: "5px 0 0" }}>Valores dos itens selecionados</h3>
+        </div>
+
+        <div className="purchase-item-values">
+          {items.map((item) => {
+            const subtotal =
+              numberFromInput(quantities[item.id] ?? "0") *
+              numberFromInput(unitPrices[item.id] ?? "0");
+            return (
+              <div className="purchase-item-value-row" key={item.id}>
+                <strong>{item.name}</strong>
+                <label className="field">
+                  Quantidade comprada
+                  <input
+                    name={`quantity_${item.id}`}
+                    inputMode="decimal"
+                    value={quantities[item.id] ?? ""}
+                    onChange={(event) =>
+                      setQuantities((current) => ({
+                        ...current,
+                        [item.id]: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </label>
+                <label className="field">
+                  Valor unitário
+                  <input
+                    name={`unit_price_${item.id}`}
+                    inputMode="decimal"
+                    value={unitPrices[item.id] ?? ""}
+                    onChange={(event) =>
+                      setUnitPrices((current) => ({
+                        ...current,
+                        [item.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="0,00"
+                    required
+                  />
+                </label>
+                <div className="item-value">
+                  <strong>
+                    {subtotal.toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}
+                  </strong>
+                  <small>subtotal</small>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="purchase-total-preview">
+          <span>Total desta compra</span>
+          <strong>
+            {purchaseTotal.toLocaleString("pt-BR", {
+              style: "currency",
+              currency: "BRL",
+            })}
+          </strong>
+        </div>
+
+        <label className="field">
+          Quem pagou a compra inteira?
+          <select name="paid_by_member_id" required defaultValue="">
+            <option value="" disabled>Selecione o pagador</option>
+            {members.map((member) => (
+              <option value={member.id} key={member.id}>{member.name}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="form-section">
+          <h4>Para quem foi esta compra?</h4>
+          <div className="purchase-scope-grid">
+            {([
+              ["household", "Casa toda", "Divide entre todos os moradores ativos."],
+              ["group", "Grupo", "Escolha duas ou mais pessoas."],
+              ["individual", "Individual", "O valor fica para uma única pessoa."],
+            ] as const).map(([value, title, detail]) => (
+              <label className={`purchase-scope ${scope === value ? "selected" : ""}`} key={value}>
+                <input
+                  type="radio"
+                  name="purchase_scope"
+                  value={value}
+                  checked={scope === value}
+                  onChange={() => changeScope(value)}
+                />
+                <span><strong>{title}</strong><small>{detail}</small></span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-section">
+          <h4>{scope === "household" ? "Participantes incluídos" : "Selecione os participantes"}</h4>
+          <div className="member-check-grid">
+            {members.map((member) => {
+              const checked = participants.includes(member.id);
+              return (
+                <label className={`member-check ${checked ? "selected" : ""}`} key={member.id}>
+                  <input
+                    type={scope === "individual" ? "radio" : "checkbox"}
+                    name={scope === "individual" ? "participant_choice" : undefined}
+                    checked={checked}
+                    disabled={scope === "household"}
+                    onChange={() => toggleParticipant(member.id)}
+                  />
+                  <span>{member.name}</span>
+                  {checked && <input type="hidden" name="participant_ids" value={member.id} />}
+                </label>
+              );
+            })}
+          </div>
+          <p className="note">
+            O total é dividido igualmente entre os participantes selecionados.
+          </p>
+        </div>
+
+        <div className="form-actions">
+          <SubmitButton pendingLabel="Salvando compra...">Registrar compra</SubmitButton>
+          <button className="button ghost" type="button" onClick={onCancel}>Cancelar seleção</button>
+        </div>
+        {state.status === "error" && <div className="message error">{state.message}</div>}
+      </form>
+    </div>
+  );
+}
+
+export function ShoppingPurchaseMutationForm({
+  mode,
+  purchaseId,
+  itemId,
+  redirectTo,
+}: {
+  mode: "remove-item" | "reset-purchase";
+  purchaseId: string;
+  itemId?: string;
+  redirectTo: string;
+}) {
+  const router = useRouter();
+  const action = mode === "remove-item" ? removeItemFromShoppingPurchase : resetShoppingPurchase;
+  const [state, formAction] = useActionState(action, initialFormActionState);
+
+  useEffect(() => {
+    if (state.status === "success") router.refresh();
+  }, [state, router]);
+
+  return (
+    <form action={formAction} className="purchase-mutation-form">
+      <input type="hidden" name="purchase_id" value={purchaseId} />
+      {itemId && <input type="hidden" name="item_id" value={itemId} />}
+      <input type="hidden" name="redirect_to" value={redirectTo} />
+      <SubmitButton
+        className={`button ${mode === "remove-item" ? "danger" : "ghost"} small`}
+        pendingLabel={mode === "remove-item" ? "Retirando..." : "Devolvendo..."}
+      >
+        {mode === "remove-item" ? "Retirar da compra" : "Voltar itens à lista"}
+      </SubmitButton>
+      {state.status !== "idle" && (
+        <span className={`message ${state.status} inline-action-message`}>{state.message}</span>
+      )}
+    </form>
   );
 }

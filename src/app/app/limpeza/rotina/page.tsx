@@ -1,9 +1,20 @@
 import Link from "next/link";
-import { ArrowIcon, SettingsIcon } from "@/components/icons";
+import { ArrowIcon, CheckIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { requireAdmin } from "@/lib/auth";
-import { addDays, formatHouseDate, todayIso } from "@/lib/chore-rotation";
-import { reviewDaySwap } from "../actions";
+import {
+  addDays,
+  formatHouseDate,
+  todayIso,
+  type StandardDailyTask,
+} from "@/lib/chore-rotation";
+import {
+  createStandardDailyTask,
+  moveStandardDailyTask,
+  reviewDaySwap,
+  setStandardDailyTaskActive,
+  updateStandardDailyTask,
+} from "../actions";
 import { RotationOrderEditor } from "./rotation-order-editor";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +38,7 @@ export default async function RotationAdminPage({
     { data: members },
     { data: rotationRows },
     { data: swaps },
+    { data: standardTaskRows },
   ] = await Promise.all([
     supabase
       .from("daily_rotation_settings")
@@ -51,6 +63,13 @@ export default async function RotationAdminPage({
       )
       .eq("household_id", profile.household_id)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("daily_standard_tasks")
+      .select("id,task_key,label,description,display_order,active")
+      .eq("household_id", profile.household_id)
+      .order("active", { ascending: false })
+      .order("display_order")
+      .order("created_at"),
   ]);
 
   const memberMap = new Map((members ?? []).map((member) => [member.id, member]));
@@ -65,14 +84,17 @@ export default async function RotationAdminPage({
   const pendingSwaps = (swaps ?? []).filter((swap) => swap.status === "pending");
   const reviewedSwaps = (swaps ?? []).filter((swap) => swap.status !== "pending");
   const defaultStartDate = settings?.start_date ?? addDays(todayIso(), 1);
+  const standardTasks = (standardTaskRows ?? []) as StandardDailyTask[];
+  const activeStandardTasks = standardTasks.filter((task) => task.active);
+  const inactiveStandardTasks = standardTasks.filter((task) => !task.active);
 
   return (
     <>
       <div className="page-head">
         <div>
           <span className="eyebrow">Administração • Casa em dia</span>
-          <h1>Configurar escala diária</h1>
-          <p>Defina a ordem dos moradores e aprove ou recuse pedidos de troca.</p>
+          <h1>Configurar rotina diária</h1>
+          <p>Defina a escala, controle as tarefas padrão e analise pedidos de troca.</p>
         </div>
         <div className="page-actions">
           <Link className="button ghost" href="/app/limpeza">
@@ -166,6 +188,145 @@ export default async function RotationAdminPage({
           </div>
         </section>
       </div>
+
+      <section className="card pad standard-tasks-admin-card">
+        <div className="card-head rotation-admin-card-head">
+          <div>
+            <h2>Tarefas padrão diárias</h2>
+            <span className="muted-text">
+              Estas tarefas aparecem automaticamente em todos os dias do calendário.
+            </span>
+          </div>
+          <CheckIcon />
+        </div>
+
+        <form action={createStandardDailyTask} className="standard-task-create-form">
+          <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+          <label>
+            Nova tarefa
+            <input
+              name="label"
+              required
+              maxLength={120}
+              placeholder="Ex.: Verificar o lixo da área de serviço"
+            />
+          </label>
+          <label>
+            Orientação (opcional)
+            <input
+              name="description"
+              maxLength={500}
+              placeholder="Explique rapidamente como a tarefa deve ser feita"
+            />
+          </label>
+          <SubmitButton className="button primary" pendingLabel="Adicionando...">
+            <PlusIcon /> Adicionar tarefa
+          </SubmitButton>
+        </form>
+
+        <div className="standard-task-admin-list">
+          {activeStandardTasks.map((task, index) => (
+            <article className="standard-task-admin-row" key={task.task_key}>
+              <div className="standard-task-order-actions">
+                <form action={moveStandardDailyTask}>
+                  <input type="hidden" name="task_key" value={task.task_key} />
+                  <input type="hidden" name="direction" value="up" />
+                  <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                  <SubmitButton
+                    className="icon-button"
+                    pendingLabel="…"
+                    disabled={index === 0}
+                    aria-label={`Subir ${task.label}`}
+                    title="Subir na ordem"
+                  >
+                    ↑
+                  </SubmitButton>
+                </form>
+                <form action={moveStandardDailyTask}>
+                  <input type="hidden" name="task_key" value={task.task_key} />
+                  <input type="hidden" name="direction" value="down" />
+                  <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                  <SubmitButton
+                    className="icon-button"
+                    pendingLabel="…"
+                    disabled={index === activeStandardTasks.length - 1}
+                    aria-label={`Descer ${task.label}`}
+                    title="Descer na ordem"
+                  >
+                    ↓
+                  </SubmitButton>
+                </form>
+              </div>
+
+              <form action={updateStandardDailyTask} className="standard-task-edit-form">
+                <input type="hidden" name="task_key" value={task.task_key} />
+                <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                <label>
+                  Nome
+                  <input name="label" required maxLength={120} defaultValue={task.label} />
+                </label>
+                <label>
+                  Orientação
+                  <input
+                    name="description"
+                    maxLength={500}
+                    defaultValue={task.description ?? ""}
+                    placeholder="Opcional"
+                  />
+                </label>
+                <SubmitButton className="button secondary small" pendingLabel="Salvando...">
+                  Salvar
+                </SubmitButton>
+              </form>
+
+              <form action={setStandardDailyTaskActive}>
+                <input type="hidden" name="task_key" value={task.task_key} />
+                <input type="hidden" name="active" value="0" />
+                <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                <SubmitButton className="button danger small" pendingLabel="Removendo...">
+                  Remover
+                </SubmitButton>
+              </form>
+            </article>
+          ))}
+          {activeStandardTasks.length === 0 && (
+            <div className="empty">Nenhuma tarefa padrão ativa. Adicione uma acima.</div>
+          )}
+        </div>
+
+        {inactiveStandardTasks.length > 0 && (
+          <details className="standard-task-inactive">
+            <summary>
+              Tarefas removidas ({inactiveStandardTasks.length})
+            </summary>
+            <div className="standard-task-inactive-list">
+              {inactiveStandardTasks.map((task) => (
+                <div className="standard-task-inactive-row" key={task.task_key}>
+                  <div>
+                    <strong>{task.label}</strong>
+                    <small>
+                      {task.description ?? "Mantida apenas para preservar o histórico."}
+                    </small>
+                  </div>
+                  <form action={setStandardDailyTaskActive}>
+                    <input type="hidden" name="task_key" value={task.task_key} />
+                    <input type="hidden" name="active" value="1" />
+                    <input type="hidden" name="redirect_to" value="/app/limpeza/rotina" />
+                    <SubmitButton className="button ghost small" pendingLabel="Reativando...">
+                      Reativar
+                    </SubmitButton>
+                  </form>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        <p className="note standard-task-history-note">
+          Ao remover uma tarefa, ela deixa de aparecer nos próximos dias, mas o histórico já
+          registrado continua preservado.
+        </p>
+      </section>
 
       {reviewedSwaps.length > 0 && (
         <section className="card" style={{ marginTop: 16 }}>

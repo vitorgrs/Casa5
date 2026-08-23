@@ -1,14 +1,13 @@
 export const HOUSE_TIME_ZONE = "America/Sao_Paulo";
 
-export const STANDARD_DAILY_TASKS = [
-  { key: "kitchen_trash", label: "Verificar o lixo da cozinha" },
-  { key: "bathroom_1_trash", label: "Verificar o lixo do banheiro 1" },
-  { key: "bathroom_2_trash", label: "Verificar o lixo do banheiro 2" },
-  { key: "bathroom_3_trash", label: "Verificar o lixo do banheiro 3" },
-  { key: "water_bottles", label: "Encher as garrafas de água" },
-] as const;
-
-export type StandardDailyTaskKey = (typeof STANDARD_DAILY_TASKS)[number]["key"];
+export type StandardDailyTask = {
+  id: string;
+  task_key: string;
+  label: string;
+  description: string | null;
+  display_order: number;
+  active: boolean;
+};
 
 export type RotationMember = {
   id: string;

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireActiveProfile, requireAdmin } from "@/lib/auth";
-import { isIsoDate, STANDARD_DAILY_TASKS } from "@/lib/chore-rotation";
+import { isIsoDate } from "@/lib/chore-rotation";
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -98,9 +98,7 @@ export async function toggleDailyTaskCompletion(formData: FormData) {
   const completed = String(formData.get("completed") ?? "0") === "1";
 
   if (!isIsoDate(date)) throw new Error("Data inválida.");
-  if (!STANDARD_DAILY_TASKS.some((task) => task.key === taskKey)) {
-    throw new Error("Tarefa padrão inválida.");
-  }
+  if (!taskKey) throw new Error("Tarefa padrão inválida.");
 
   const { error } = await supabase.rpc("toggle_daily_chore_completion", {
     target_date: date,
@@ -111,6 +109,147 @@ export async function toggleDailyTaskCompletion(formData: FormData) {
 
   refreshRotationPages();
   redirect(withRefresh(returnTo));
+}
+
+export async function createStandardDailyTask(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza/rotina");
+  const { profile, supabase } = await requireAdmin();
+  const label = String(formData.get("label") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+
+  if (!label) throw new Error("Informe o nome da tarefa padrão.");
+  if (label.length > 120) throw new Error("O nome deve ter no máximo 120 caracteres.");
+  if (description.length > 500) {
+    throw new Error("A descrição deve ter no máximo 500 caracteres.");
+  }
+
+  const { data: lastTask, error: orderError } = await supabase
+    .from("daily_standard_tasks")
+    .select("display_order")
+    .eq("household_id", profile.household_id)
+    .order("display_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (orderError) throw new Error(orderError.message);
+
+  const taskKey = `custom_${crypto.randomUUID()}`;
+  const { error } = await supabase.from("daily_standard_tasks").insert({
+    household_id: profile.household_id,
+    task_key: taskKey,
+    label,
+    description: description || null,
+    display_order: (lastTask?.display_order ?? 0) + 1,
+    active: true,
+    created_by: profile.id,
+    updated_by: profile.id,
+  });
+  if (error) throw new Error(error.message);
+
+  refreshRotationPages();
+  redirect(withMessage(returnTo, "success", "Tarefa padrão adicionada."));
+}
+
+export async function updateStandardDailyTask(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza/rotina");
+  const { profile, supabase } = await requireAdmin();
+  const taskKey = String(formData.get("task_key") ?? "");
+  const label = String(formData.get("label") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+
+  if (!taskKey || !label) throw new Error("Informe a tarefa e o nome.");
+  if (label.length > 120) throw new Error("O nome deve ter no máximo 120 caracteres.");
+  if (description.length > 500) {
+    throw new Error("A descrição deve ter no máximo 500 caracteres.");
+  }
+
+  const { error } = await supabase
+    .from("daily_standard_tasks")
+    .update({
+      label,
+      description: description || null,
+      updated_by: profile.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("household_id", profile.household_id)
+    .eq("task_key", taskKey);
+  if (error) throw new Error(error.message);
+
+  refreshRotationPages();
+  redirect(withMessage(returnTo, "success", "Tarefa padrão atualizada."));
+}
+
+export async function setStandardDailyTaskActive(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza/rotina");
+  const { profile, supabase } = await requireAdmin();
+  const taskKey = String(formData.get("task_key") ?? "");
+  const active = String(formData.get("active") ?? "0") === "1";
+
+  if (!taskKey) throw new Error("Tarefa padrão não informada.");
+
+  const { error } = await supabase
+    .from("daily_standard_tasks")
+    .update({
+      active,
+      updated_by: profile.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("household_id", profile.household_id)
+    .eq("task_key", taskKey);
+  if (error) throw new Error(error.message);
+
+  refreshRotationPages();
+  redirect(
+    withMessage(
+      returnTo,
+      "success",
+      active ? "Tarefa padrão reativada." : "Tarefa padrão desativada.",
+    ),
+  );
+}
+
+export async function moveStandardDailyTask(formData: FormData) {
+  const returnTo = destination(formData, "/app/limpeza/rotina");
+  const { profile, supabase } = await requireAdmin();
+  const taskKey = String(formData.get("task_key") ?? "");
+  const direction = String(formData.get("direction") ?? "") === "up" ? -1 : 1;
+
+  if (!taskKey) throw new Error("Tarefa padrão não informada.");
+
+  const { data: tasks, error: fetchError } = await supabase
+    .from("daily_standard_tasks")
+    .select("task_key,display_order")
+    .eq("household_id", profile.household_id)
+    .eq("active", true)
+    .order("display_order")
+    .order("created_at");
+  if (fetchError) throw new Error(fetchError.message);
+
+  const currentIndex = (tasks ?? []).findIndex((task) => task.task_key === taskKey);
+  const targetIndex = currentIndex + direction;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= (tasks?.length ?? 0)) {
+    redirect(returnTo);
+  }
+
+  const current = tasks![currentIndex];
+  const target = tasks![targetIndex];
+  const now = new Date().toISOString();
+  const [{ error: currentError }, { error: targetError }] = await Promise.all([
+    supabase
+      .from("daily_standard_tasks")
+      .update({ display_order: target.display_order, updated_by: profile.id, updated_at: now })
+      .eq("household_id", profile.household_id)
+      .eq("task_key", current.task_key),
+    supabase
+      .from("daily_standard_tasks")
+      .update({ display_order: current.display_order, updated_by: profile.id, updated_at: now })
+      .eq("household_id", profile.household_id)
+      .eq("task_key", target.task_key),
+  ]);
+  if (currentError) throw new Error(currentError.message);
+  if (targetError) throw new Error(targetError.message);
+
+  refreshRotationPages();
+  redirect(withMessage(returnTo, "success", "Ordem das tarefas atualizada."));
 }
 
 export async function recordDailyExtraTask(formData: FormData) {

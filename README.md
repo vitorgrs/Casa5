@@ -581,3 +581,16 @@ A migração cria a ordem diária dos moradores, inicia a escala no dia seguinte
 de troca com aprovação administrativa. A ordem inicial acompanha a ordem atual
 da tela **Moradores** e pode ser alterada em **Casa em dia → Administrar
 escala**.
+
+## Atualização: tarefas padrão controladas pelo administrador
+
+Depois da migração 015, rode:
+
+```text
+supabase/migrations/016_admin_daily_standard_tasks.sql
+```
+
+As cinco tarefas existentes são preservadas e passam a ser configuráveis em
+**Casa em dia → Administrar escala**. O administrador pode adicionar, editar,
+reordenar, remover e reativar tarefas. Uma tarefa removida deixa de aparecer no
+calendário, mas suas conclusões anteriores continuam guardadas no histórico.

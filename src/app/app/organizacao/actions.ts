@@ -208,82 +208,119 @@ export async function updateShoppingItem(formData: FormData) {
   redirect(withRefresh(returnTo));
 }
 
-export async function recordShoppingPurchase(formData: FormData) {
+export async function recordShoppingPurchase(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
   const { supabase } = await requireAdmin();
-  const itemIds = Array.from(
-    new Set(formData.getAll("selected_item_ids").map(String).filter(Boolean)),
-  );
-  const scope = String(formData.get("purchase_scope") ?? "");
-  const payerMemberId = String(formData.get("paid_by_member_id") ?? "");
-  const participantIds = Array.from(
-    new Set(formData.getAll("participant_ids").map(String).filter(Boolean)),
-  );
-  const quantities = itemIds.map((itemId) => decimal(formData.get(`quantity_${itemId}`)));
-  const unitPrices = itemIds.map((itemId) => decimal(formData.get(`unit_price_${itemId}`)));
+  try {
+    const itemIds = Array.from(
+      new Set(formData.getAll("selected_item_ids").map(String).filter(Boolean)),
+    );
+    const scope = String(formData.get("purchase_scope") ?? "");
+    const payerMemberId = String(formData.get("paid_by_member_id") ?? "");
+    const participantIds = Array.from(
+      new Set(formData.getAll("participant_ids").map(String).filter(Boolean)),
+    );
+    const quantities = itemIds.map((itemId) => decimal(formData.get(`quantity_${itemId}`)));
+    const unitPrices = itemIds.map((itemId) => decimal(formData.get(`unit_price_${itemId}`)));
 
-  if (itemIds.length === 0) throw new Error("Selecione pelo menos um item.");
-  if (quantities.some((value) => value === null || value <= 0)) {
-    throw new Error("Informe uma quantidade válida para todos os itens.");
-  }
-  if (unitPrices.some((value) => value === null || value < 0)) {
-    throw new Error("Informe o valor unitário de todos os itens.");
-  }
-  if (!payerMemberId) throw new Error("Selecione quem pagou a compra.");
+    if (itemIds.length === 0) return { status: "error", message: "Selecione pelo menos um item." };
+    if (quantities.some((value) => value === null || value <= 0)) {
+      return { status: "error", message: "Informe uma quantidade válida para todos os itens." };
+    }
+    if (unitPrices.some((value) => value === null || value < 0)) {
+      return { status: "error", message: "Informe o valor unitário de todos os itens." };
+    }
+    if (!payerMemberId) return { status: "error", message: "Selecione quem pagou a compra." };
 
-  const { error } = await supabase.rpc("record_multi_item_shopping_purchase", {
-    target_item_ids: itemIds,
-    purchased_quantities: quantities as number[],
-    purchased_unit_prices: unitPrices as number[],
-    selected_scope: scope,
-    payer_member_id: payerMemberId,
-    participant_member_ids: participantIds,
-  });
-  if (error) throw new Error(error.message);
-  revalidatePath(pathOf(returnTo));
-  revalidatePath("/app/eu");
-  redirect(withRefresh(returnTo));
+    const { error } = await supabase.rpc("record_multi_item_shopping_purchase", {
+      target_item_ids: itemIds,
+      purchased_quantities: quantities as number[],
+      purchased_unit_prices: unitPrices as number[],
+      selected_scope: scope,
+      payer_member_id: payerMemberId,
+      participant_member_ids: participantIds,
+    });
+    if (error) return { status: "error", message: error.message };
+
+    revalidatePath(pathOf(returnTo));
+    revalidatePath("/app/eu");
+    return { status: "success", message: "Compra registrada com sucesso." };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível registrar a compra.",
+    };
+  }
 }
 
-export async function resetShoppingPurchase(formData: FormData) {
+export async function resetShoppingPurchase(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
   const { supabase } = await requireAdmin();
-  const purchaseId = String(formData.get("purchase_id") ?? "");
-  const { count: pendingReceipts } = await supabase
-    .from("shopping_purchase_shares")
-    .select("id", { count: "exact", head: true })
-    .eq("purchase_id", purchaseId)
-    .eq("payment_status", "pending")
-    .not("receipt_path", "is", null);
-  if ((pendingReceipts ?? 0) > 0) {
-    throw new Error("Confirme o comprovante pendente antes de desfazer esta compra.");
+  try {
+    const purchaseId = String(formData.get("purchase_id") ?? "");
+    const { count: pendingReceipts } = await supabase
+      .from("shopping_purchase_shares")
+      .select("id", { count: "exact", head: true })
+      .eq("purchase_id", purchaseId)
+      .eq("payment_status", "pending")
+      .not("receipt_path", "is", null);
+    if ((pendingReceipts ?? 0) > 0) {
+      return {
+        status: "error",
+        message: "Confirme o comprovante pendente antes de desfazer esta compra.",
+      };
+    }
+    await deletePurchaseReceipts(supabase, purchaseId);
+    const { error } = await supabase.rpc("reset_shopping_purchase", {
+      target_purchase_id: purchaseId,
+    });
+    if (error) return { status: "error", message: error.message };
+
+    revalidatePath(pathOf(returnTo));
+    revalidatePath("/app/eu");
+    return { status: "success", message: "Itens devolvidos para a lista." };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível desfazer a compra.",
+    };
   }
-  await deletePurchaseReceipts(supabase, purchaseId);
-  const { error } = await supabase.rpc("reset_shopping_purchase", {
-    target_purchase_id: purchaseId,
-  });
-  if (error) throw new Error(error.message);
-  revalidatePath(pathOf(returnTo));
-  revalidatePath("/app/eu");
-  redirect(withRefresh(returnTo));
 }
 
-export async function removeItemFromShoppingPurchase(formData: FormData) {
+export async function removeItemFromShoppingPurchase(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
   const { supabase } = await requireAdmin();
-  const purchaseId = String(formData.get("purchase_id") ?? "");
-  const itemId = String(formData.get("item_id") ?? "");
-  if (!purchaseId || !itemId) throw new Error("Compra ou item não informado.");
+  try {
+    const purchaseId = String(formData.get("purchase_id") ?? "");
+    const itemId = String(formData.get("item_id") ?? "");
+    if (!purchaseId || !itemId) {
+      return { status: "error", message: "Compra ou item não informado." };
+    }
 
-  const { error } = await supabase.rpc("remove_item_from_shopping_purchase", {
-    target_purchase_id: purchaseId,
-    target_item_id: itemId,
-  });
-  if (error) throw new Error(error.message);
+    const { error } = await supabase.rpc("remove_item_from_shopping_purchase", {
+      target_purchase_id: purchaseId,
+      target_item_id: itemId,
+    });
+    if (error) return { status: "error", message: error.message };
 
-  revalidatePath("/app/organizacao");
-  revalidatePath("/app/eu");
-  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Item retirado e rateio recalculado.")}`);
+    revalidatePath(pathOf(returnTo));
+    revalidatePath("/app/eu");
+    return { status: "success", message: "Item retirado e devolvido para a lista." };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível retirar o item.",
+    };
+  }
 }
 
 export async function deleteShoppingItem(formData: FormData) {

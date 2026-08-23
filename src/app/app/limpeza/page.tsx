@@ -8,10 +8,10 @@ import {
   formatHouseDate,
   isIsoDate,
   rotationMemberForDate,
-  STANDARD_DAILY_TASKS,
   todayIso,
   type RotationMember,
   type RotationSwap,
+  type StandardDailyTask,
 } from "@/lib/chore-rotation";
 import { deleteTask } from "../organizacao/actions";
 import {
@@ -85,6 +85,7 @@ export default async function ChoresPage({
     { data: swaps },
     { data: completions },
     { data: calendarTasks },
+    { data: standardTaskRows },
   ] = await Promise.all([
     supabase
       .from("daily_rotation_settings")
@@ -125,7 +126,16 @@ export default async function ChoresPage({
       .gte("due_date", monthStart)
       .lte("due_date", monthEnd)
       .order("due_date"),
+    supabase
+      .from("daily_standard_tasks")
+      .select("id,task_key,label,description,display_order,active")
+      .eq("household_id", profile.household_id)
+      .eq("active", true)
+      .order("display_order")
+      .order("created_at"),
   ]);
+
+  const standardTasks = (standardTaskRows ?? []) as StandardDailyTask[];
 
   const orderByMember = new Map(
     (rotationRows ?? []).map((row) => [row.member_id, row.rotation_order]),
@@ -220,7 +230,7 @@ export default async function ChoresPage({
         {profile.role === "admin" && (
           <div className="page-actions">
             <Link className="button secondary" href="/app/limpeza/rotina">
-              <SettingsIcon /> Administrar escala
+              <SettingsIcon /> Administrar rotina
             </Link>
           </div>
         )}
@@ -258,8 +268,8 @@ export default async function ChoresPage({
               rotationMembers,
               rotationSwaps,
             );
-            const completedCount = STANDARD_DAILY_TASKS.filter((task) =>
-              completedKeys.has(`${iso}:${task.key}`),
+            const completedCount = standardTasks.filter((task) =>
+              completedKeys.has(`${iso}:${task.task_key}`),
             ).length;
             const extraCount = tasksByDay.get(iso)?.length ?? 0;
             const isToday = iso === today;
@@ -287,7 +297,9 @@ export default async function ChoresPage({
                       <strong>{owner.name.split(" ")[0]}</strong>
                     </span>
                     <span className="rotation-progress">
-                      {completedCount}/{STANDARD_DAILY_TASKS.length} tarefas
+                      {standardTasks.length > 0
+                        ? `${completedCount}/${standardTasks.length} tarefas`
+                        : "Sem tarefas padrão"}
                       {extraCount > 0 ? ` • +${extraCount}` : ""}
                     </span>
                   </>
@@ -354,19 +366,19 @@ export default async function ChoresPage({
                       <p>Estas tarefas aparecem automaticamente em todos os dias da escala.</p>
                     </div>
                     <span className="daily-completion-count">
-                      {STANDARD_DAILY_TASKS.filter((task) =>
-                        completedKeys.has(`${selectedDay}:${task.key}`),
-                      ).length}/{STANDARD_DAILY_TASKS.length}
+                      {standardTasks.filter((task) =>
+                        completedKeys.has(`${selectedDay}:${task.task_key}`),
+                      ).length}/{standardTasks.length}
                     </span>
                   </div>
 
                   <div className="daily-task-list">
-                    {STANDARD_DAILY_TASKS.map((task) => {
-                      const completed = completedKeys.has(`${selectedDay}:${task.key}`);
+                    {standardTasks.map((task) => {
+                      const completed = completedKeys.has(`${selectedDay}:${task.task_key}`);
                       return (
-                        <form action={toggleDailyTaskCompletion} key={task.key}>
+                        <form action={toggleDailyTaskCompletion} key={task.task_key}>
                           <input type="hidden" name="reference_date" value={selectedDay} />
-                          <input type="hidden" name="task_key" value={task.key} />
+                          <input type="hidden" name="task_key" value={task.task_key} />
                           <input type="hidden" name="completed" value={completed ? "0" : "1"} />
                           <input
                             type="hidden"
@@ -386,12 +398,20 @@ export default async function ChoresPage({
                             }
                           >
                             <span className="daily-task-check"><CheckIcon /></span>
-                            <span>{task.label}</span>
+                            <span className="daily-task-copy">
+                              <strong>{task.label}</strong>
+                              {task.description && <small>{task.description}</small>}
+                            </span>
                             <small>{completed ? "Concluída" : "Pendente"}</small>
                           </button>
                         </form>
                       );
                     })}
+                    {standardTasks.length === 0 && (
+                      <div className="empty">
+                        O administrador ainda não cadastrou tarefas padrão.
+                      </div>
+                    )}
                   </div>
                   {selectedDay > today && (
                     <p className="note">As tarefas poderão ser marcadas como concluídas no próprio dia.</p>
