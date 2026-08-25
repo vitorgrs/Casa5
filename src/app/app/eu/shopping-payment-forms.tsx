@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState, type ChangeEvent } from "r
 import { useRouter } from "next/navigation";
 import {
   confirmShoppingNetPayment,
+  recordShoppingNetPaymentAsAdmin,
   uploadShoppingNetReceipt,
 } from "@/app/app/organizacao/actions";
 import { SubmitButton } from "@/components/submit-button";
@@ -118,6 +119,55 @@ export function ShoppingPaymentConfirmationForm({
       <SubmitButton className="button secondary small" pendingLabel="Confirmando...">
         {label}
       </SubmitButton>
+      <ActionMessage state={state} />
+    </form>
+  );
+}
+
+export function AdminShoppingPaymentForm({
+  shareId,
+  redirectTo,
+  defaultValue,
+  max,
+}: {
+  shareId: string;
+  redirectTo: string;
+  defaultValue: number;
+  max: number;
+}) {
+  const router = useRouter();
+  const [state, formAction] = useActionState(
+    recordShoppingNetPaymentAsAdmin,
+    initialFormActionState,
+  );
+
+  useEffect(() => {
+    if (state.status === "success") router.refresh();
+  }, [router, state.status]);
+
+  return (
+    <form action={formAction} className="admin-direct-payment-form">
+      <input type="hidden" name="share_id" value={shareId} />
+      <input type="hidden" name="redirect_to" value={redirectTo} />
+      <label className="field">
+        Valor que foi pago
+        <input
+          type="number"
+          name="payment_amount"
+          min="0.01"
+          max={max.toFixed(2)}
+          step="0.01"
+          defaultValue={defaultValue.toFixed(2)}
+          inputMode="decimal"
+          required
+        />
+      </label>
+      <SubmitButton className="button primary small" pendingLabel="Registrando...">
+        Marcar como pago sem comprovante
+      </SubmitButton>
+      <small className="muted-text">
+        Uso exclusivo do administrador. Se o valor for parcial, o restante continua em aberto.
+      </small>
       <ActionMessage state={state} />
     </form>
   );

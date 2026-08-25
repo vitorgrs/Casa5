@@ -154,7 +154,7 @@ export async function updateExpense(formData: FormData) {
       supabase
         .from("expense_shares")
         .select(
-          "member_id,payment_status,paid_at,payment_method,note,reimbursement_status,reimbursement_paid_at,receipt_path,receipt_name,receipt_uploaded_by,receipt_uploaded_at",
+          "member_id,payment_status,paid_amount,paid_at,payment_method,payment_recorded_by,note,reimbursement_status,reimbursement_paid_at,receipt_path,receipt_name,receipt_uploaded_by,receipt_uploaded_at",
         )
         .eq("expense_id", expenseId),
       supabase
@@ -167,8 +167,10 @@ export async function updateExpense(formData: FormData) {
   type PreviousShare = {
     member_id: string;
     payment_status: string;
+    paid_amount: number | null;
     paid_at: string | null;
     payment_method: string | null;
+    payment_recorded_by: string | null;
     note: string | null;
     reimbursement_status: string;
     reimbursement_paid_at: string | null;
@@ -217,18 +219,12 @@ export async function updateExpense(formData: FormData) {
         return {
           ...share,
           expense_id: expenseId,
-          payment_status:
-            old?.payment_status === "paid" && !old.receipt_path
-              ? "pending"
-              : (old?.payment_status ?? "pending"),
-          paid_at:
-            old?.payment_status === "paid" && old.receipt_path
-              ? old.paid_at
-              : null,
-          payment_method:
-            old?.payment_status === "paid" && old.receipt_path
-              ? old.payment_method
-              : null,
+          payment_status: old?.payment_status ?? "pending",
+          paid_amount: old?.payment_status === "paid" ? old.paid_amount : null,
+          paid_at: old?.payment_status === "paid" ? old.paid_at : null,
+          payment_method: old?.payment_status === "paid" ? old.payment_method : null,
+          payment_recorded_by:
+            old?.payment_status === "paid" ? old.payment_recorded_by : null,
           note: old?.note ?? null,
           receipt_path: old?.receipt_path ?? null,
           receipt_name: old?.receipt_name ?? null,
@@ -275,7 +271,7 @@ export async function setPaymentStatus(formData: FormData) {
 
   const { data: share } = await supabase
     .from("expense_shares")
-    .select("id,expense_id,receipt_path,expense:expenses(household_id)")
+    .select("id,expense_id,amount,receipt_path,expense:expenses(household_id)")
     .eq("id", shareId)
     .single();
   const expense = Array.isArray(share?.expense) ? share.expense[0] : share?.expense;
@@ -290,8 +286,10 @@ export async function setPaymentStatus(formData: FormData) {
     .from("expense_shares")
     .update({
       payment_status: status,
+      paid_amount: status === "paid" ? share.amount : null,
       paid_at: status === "paid" ? new Date().toISOString() : null,
       payment_method: status === "paid" ? "Mercado Pago / Pix" : null,
+      payment_recorded_by: status === "paid" ? profile.id : null,
     })
     .eq("id", shareId)
     .eq("expense_id", share.expense_id)
@@ -316,6 +314,78 @@ export async function setPaymentStatus(formData: FormData) {
 
   revalidatePath(pathOf(returnTo));
   redirect(returnTo);
+}
+
+export async function setExpensePaymentAsAdmin(formData: FormData) {
+  const returnTo = destination(formData, "/app/despesas");
+  const { profile, supabase } = await requireAdmin();
+  const shareId = String(formData.get("share_id") ?? "");
+  const status = String(formData.get("status") ?? "paid");
+  const paidAmount = money(formData.get("paid_amount"));
+
+  if (!shareId || !["paid", "pending"].includes(status)) {
+    throw new Error("Pagamento inválido.");
+  }
+  if (status === "paid" && (paidAmount === null || paidAmount <= 0)) {
+    throw new Error("Informe um valor pago maior que zero.");
+  }
+
+  const { data: share } = await supabase
+    .from("expense_shares")
+    .select("id,expense_id,amount,expense:expenses(household_id)")
+    .eq("id", shareId)
+    .single();
+  const expense = Array.isArray(share?.expense) ? share.expense[0] : share?.expense;
+  if (!share || !expense || expense.household_id !== profile.household_id) {
+    throw new Error("Pagamento não encontrado.");
+  }
+  if (status === "paid" && paidAmount! > Number(share.amount)) {
+    throw new Error("O valor pago não pode ultrapassar o valor da parcela.");
+  }
+
+  const now = new Date().toISOString();
+  const { data: changed, error } = await supabase
+    .from("expense_shares")
+    .update({
+      payment_status: status,
+      paid_amount: status === "paid" ? paidAmount : null,
+      paid_at: status === "paid" ? now : null,
+      payment_method: status === "paid" ? "Registro manual do administrador" : null,
+      payment_recorded_by: status === "paid" ? profile.id : null,
+    })
+    .eq("id", shareId)
+    .eq("expense_id", share.expense_id)
+    .select("expense_id")
+    .single();
+  if (error || !changed) {
+    throw new Error(error?.message ?? "Pagamento não encontrado.");
+  }
+
+  const { data: shares } = await supabase
+    .from("expense_shares")
+    .select("payment_status")
+    .eq("expense_id", changed.expense_id);
+  const settled =
+    (shares ?? []).length > 0 &&
+    (shares ?? []).every((item) =>
+      ["paid", "waived"].includes(item.payment_status),
+    );
+  const { error: expenseError } = await supabase
+    .from("expenses")
+    .update({ status: settled ? "paid" : "open" })
+    .eq("id", changed.expense_id)
+    .eq("household_id", profile.household_id);
+  if (expenseError) throw new Error(expenseError.message);
+
+  revalidatePath(pathOf(returnTo));
+  revalidatePath("/app");
+  revalidatePath("/app/eu");
+  const separator = returnTo.includes("?") ? "&" : "?";
+  const message =
+    status === "paid"
+      ? `Pagamento de R$ ${paidAmount!.toFixed(2).replace(".", ",")} registrado pelo administrador.`
+      : "Pagamento desfeito pelo administrador.";
+  redirect(`${returnTo}${separator}success=${encodeURIComponent(message)}`);
 }
 
 export async function deleteExpense(formData: FormData) {

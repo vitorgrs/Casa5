@@ -44,7 +44,7 @@ export default async function DashboardPage() {
     supabase
       .from("expenses")
       .select(
-        "id,title,category,due_date,amount,status,estimated,expense_shares(id,amount,payment_status,member:household_members(id,name,initials,color_key))",
+        "id,title,category,due_date,amount,status,estimated,expense_shares(id,amount,paid_amount,payment_status,member:household_members(id,name,initials,color_key))",
       )
       .eq("household_id", profile.household_id)
       .eq("reference_month", referenceMonth)
@@ -93,7 +93,10 @@ export default async function DashboardPage() {
   const allShares = expenses.flatMap((expense) => expense.expense_shares ?? []);
   const received = allShares
     .filter((share) => share.payment_status === "paid")
-    .reduce((sum, share) => sum + asNumber(share.amount), 0);
+    .reduce(
+      (sum, share) => sum + asNumber(share.paid_amount ?? share.amount),
+      0,
+    );
   const pendingPeople = new Set(
     allShares
       .filter(

@@ -13,6 +13,7 @@ import {
   type SettlementDetails,
 } from "./settlement-details-modal";
 import {
+  AdminShoppingPaymentForm,
   ShoppingPaymentConfirmationForm,
   ShoppingReceiptUploadForm,
 } from "./shopping-payment-forms";
@@ -28,7 +29,7 @@ type SettlementPaymentRow = {
   debtor_member_id: string;
   creditor_member_id: string;
   amount: number | string;
-  payment_kind: "pix" | "compensation";
+  payment_kind: "pix" | "compensation" | "admin_manual";
   status: "pending" | "confirmed";
   receipt_path: string | null;
   receipt_name: string | null;
@@ -41,6 +42,12 @@ type SettlementPaymentRow = {
 type SettlementPaymentWithReceipt = SettlementPaymentRow & {
   receiptUrl: string | null;
 };
+
+function settlementPaymentLabel(paymentKind: SettlementPaymentRow["payment_kind"]) {
+  if (paymentKind === "compensation") return "compensação";
+  if (paymentKind === "admin_manual") return "registrado pelo administrador • sem comprovante";
+  return "valor pago";
+}
 
 export default async function MyPage({
   searchParams,
@@ -80,7 +87,7 @@ export default async function MyPage({
     supabase
       .from("expense_shares")
       .select(
-        "id,amount,payment_status,paid_at,expense:expenses(id,title,category,due_date,reference_month)",
+        "id,amount,paid_amount,payment_status,paid_at,expense:expenses(id,title,category,due_date,reference_month)",
       )
       .eq("member_id", memberId)
       .gte("expense.reference_month", months[0])
@@ -649,7 +656,7 @@ export default async function MyPage({
                             ? "Sem PIX"
                             : currency.format(asNumber(payment.amount))}
                         </strong>
-                        <small>{payment.payment_kind === "compensation" ? "compensação" : "valor pago"}</small>
+                        <small>{settlementPaymentLabel(payment.payment_kind)}</small>
                       </div>
                       <span className="status-pill success">Pago</span>
                     </div>
@@ -672,8 +679,8 @@ export default async function MyPage({
               <div>
                 <h2>Administração dos acertos — em aberto</h2>
                 <span className="muted-text" style={{ fontSize: 10 }}>
-                  Veja quem deve pagar, anexe o comprovante pelo morador e
-                  marque como pago somente depois do arquivo.
+                  Informe o valor pago e dê baixa diretamente, mesmo sem
+                  comprovante. Os moradores continuam enviando o arquivo normalmente.
                 </span>
               </div>
               <UsersIcon />
@@ -733,14 +740,26 @@ export default async function MyPage({
                     )}
 
                     {account.net > 0 && account.representativeShare && !account.pendingPayment && (
-                      <div style={{ padding: "4px 16px 14px" }}>
-                        <ShoppingReceiptUploadForm
-                          shareId={account.representativeShare.id}
-                          redirectTo="/app/eu"
-                          label={`Anexar comprovante de ${account.debtor.name}`}
-                          defaultValue={account.remainingNet}
-                          max={account.remainingNet}
-                        />
+                      <div className="admin-settlement-payment-options">
+                        <div className="admin-payment-option primary-option">
+                          <strong>Registrar sem comprovante</strong>
+                          <AdminShoppingPaymentForm
+                            shareId={account.representativeShare.id}
+                            redirectTo="/app/eu"
+                            defaultValue={account.remainingNet}
+                            max={account.remainingNet}
+                          />
+                        </div>
+                        <div className="admin-payment-option">
+                          <strong>Registrar com comprovante</strong>
+                          <ShoppingReceiptUploadForm
+                            shareId={account.representativeShare.id}
+                            redirectTo="/app/eu"
+                            label={`Anexar comprovante de ${account.debtor.name}`}
+                            defaultValue={account.remainingNet}
+                            max={account.remainingNet}
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -810,7 +829,7 @@ export default async function MyPage({
                               ? "Sem PIX"
                               : currency.format(asNumber(payment.amount))}
                           </strong>
-                          <small>{payment.payment_kind === "compensation" ? "compensação" : "valor pago"}</small>
+                          <small>{settlementPaymentLabel(payment.payment_kind)}</small>
                         </div>
                         <span className="status-pill success">Pago</span>
                       </div>
@@ -862,8 +881,18 @@ export default async function MyPage({
                             <small>{expense?.category}</small>
                           </div>
                           <div className="item-value">
-                            <strong>{currency.format(asNumber(share.amount))}</strong>
-                            <small>valor</small>
+                            <strong>
+                              {currency.format(
+                                asNumber(
+                                  share.payment_status === "paid"
+                                    ? (share.paid_amount ?? share.amount)
+                                    : share.amount,
+                                ),
+                              )}
+                            </strong>
+                            <small>
+                              {share.payment_status === "paid" ? "valor pago" : "valor"}
+                            </small>
                           </div>
                           <div className="item-value">
                             <strong>

@@ -594,3 +594,18 @@ As cinco tarefas existentes são preservadas e passam a ser configuráveis em
 **Casa em dia → Administrar escala**. O administrador pode adicionar, editar,
 reordenar, remover e reativar tarefas. Uma tarefa removida deixa de aparecer no
 calendário, mas suas conclusões anteriores continuam guardadas no histórico.
+
+## Atualização: pagamentos administrativos sem comprovante
+
+Depois da migração 016, rode:
+
+```text
+supabase/migrations/017_admin_payments_without_receipt.sql
+```
+
+Em **Despesas**, o administrador pode informar o valor efetivamente recebido e
+marcar a parcela de um morador como paga sem anexar comprovante. Em **Minha
+página → Administração dos acertos**, também pode dar baixa total ou parcial no
+saldo líquido de um acerto sem arquivo. Essas baixas ficam identificadas no
+histórico como registros administrativos. Para os demais moradores, o
+comprovante continua obrigatório antes da confirmação do pagamento.

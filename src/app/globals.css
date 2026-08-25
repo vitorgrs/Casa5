@@ -959,6 +959,48 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 7px;
+  flex-wrap: wrap;
+}
+.admin-paid-amount {
+  color: var(--green);
+  font-size: 9px;
+  font-weight: 750;
+}
+.admin-expense-payment-control {
+  display: grid;
+  flex: 1 0 100%;
+  gap: 7px;
+  margin-top: 3px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.admin-expense-payment-control > form:first-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+  gap: 6px;
+}
+.admin-expense-payment-control > form:first-child .button {
+  width: 100%;
+}
+.admin-expense-payment-control label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 700;
+}
+.admin-expense-payment-control input {
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 8px;
+}
+.admin-expense-payment-control > form:nth-child(2) .button {
+  width: 100%;
+}
+.admin-expense-payment-control > small {
+  margin: 0;
+  line-height: 1.35;
 }
 .details-editor {
   border-top: 1px solid var(--line);
@@ -2396,6 +2438,46 @@ textarea {
 .shopping-confirmation-form .inline-action-message {
   text-align: left;
 }
+.admin-settlement-payment-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.admin-payment-option {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.018);
+}
+.admin-payment-option.primary-option {
+  border-color: rgba(52, 211, 153, 0.28);
+  background: rgba(52, 211, 153, 0.045);
+}
+.admin-payment-option > strong {
+  font-size: 11px;
+}
+.admin-direct-payment-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(180px, auto);
+  align-items: end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.admin-direct-payment-form .field {
+  gap: 5px;
+  font-size: 9px;
+}
+.admin-direct-payment-form input {
+  padding: 9px 10px;
+}
+.admin-direct-payment-form > small,
+.admin-direct-payment-form .inline-action-message {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
 .file-input-label {
   display: inline-flex;
   align-items: center;
@@ -2952,7 +3034,9 @@ textarea {
   .shopping-toolbar,
   .shopping-inline-editor form,
   .purchase-item-value-row,
-  .netting-explanation {
+  .netting-explanation,
+  .admin-settlement-payment-options,
+  .admin-direct-payment-form {
     grid-template-columns: 1fr;
   }
   .settlement-details-modal {

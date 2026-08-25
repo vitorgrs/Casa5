@@ -439,6 +439,41 @@ export async function confirmShoppingNetPayment(
   };
 }
 
+export async function recordShoppingNetPaymentAsAdmin(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
+  const returnTo = destination(formData, "/app/eu");
+  const { supabase } = await requireAdmin();
+  const shareId = String(formData.get("share_id") ?? "");
+  const paidAmount = decimal(formData.get("payment_amount"));
+
+  if (!shareId) {
+    return { status: "error", message: "Acerto não informado." };
+  }
+  if (paidAmount === null || paidAmount <= 0) {
+    return { status: "error", message: "Informe o valor que foi pago." };
+  }
+
+  const { error } = await supabase.rpc("record_shopping_net_payment_as_admin", {
+    target_share_id: shareId,
+    paid_amount: paidAmount,
+  });
+  if (error) return { status: "error", message: error.message };
+
+  revalidatePath("/app/organizacao");
+  revalidatePath("/app/eu");
+  revalidatePath("/app");
+  revalidatePath(pathOf(returnTo));
+  return {
+    status: "success",
+    message: `Pagamento de ${paidAmount.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    })} registrado pelo administrador sem comprovante.`,
+  };
+}
+
 export async function settleZeroShoppingBalance(formData: FormData) {
   const returnTo = destination(formData, "/app/eu");
   const { supabase } = await requireActiveProfile();
