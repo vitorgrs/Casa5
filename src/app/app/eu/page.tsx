@@ -3,7 +3,6 @@ import { StatusPill } from "@/components/status-pill";
 import { CalendarIcon, ChecklistIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import { requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
-import { signedReceiptUrl } from "@/lib/storage";
 import {
   settleZeroShoppingBalance,
   settleZeroShoppingBalanceAsAdmin,
@@ -37,10 +36,6 @@ type SettlementPaymentRow = {
   confirmed_at: string | null;
   debtor: SettlementMember | SettlementMember[] | null;
   creditor: SettlementMember | SettlementMember[] | null;
-};
-
-type SettlementPaymentWithReceipt = SettlementPaymentRow & {
-  receiptUrl: string | null;
 };
 
 function settlementPaymentLabel(paymentKind: SettlementPaymentRow["payment_kind"]) {
@@ -78,29 +73,24 @@ export default async function MyPage({
 
   const [
     { data: shares },
-    { data: reimbursements },
     { data: myTasks },
     { data: shoppingShares },
-    { data: shoppingPaidByMe },
+    { data: shoppingOwedToMe },
     { data: personalSettlementPayments },
   ] = await Promise.all([
     supabase
       .from("expense_shares")
       .select(
-        "id,amount,paid_amount,payment_status,paid_at,expense:expenses(id,title,category,due_date,reference_month)",
+        "id,amount,paid_amount,payment_status,paid_at,expense:expenses!inner(id,title,category,due_date,reference_month)",
       )
       .eq("member_id", memberId)
       .gte("expense.reference_month", months[0])
       .order("id"),
     supabase
-      .from("expense_shares")
-      .select("id,reimbursement_status,expense:expenses(id,title,reimbursement_amount)")
-      .eq("member_id", memberId)
-      .neq("reimbursement_status", "not_applicable"),
-    supabase
       .from("task_assignees")
       .select("id,done,task:tasks(id,title,description,due_date,scope)")
       .eq("member_id", memberId)
+      .eq("done", false)
       .order("id"),
     supabase
       .from("shopping_purchase_shares")
@@ -111,9 +101,12 @@ export default async function MyPage({
       .eq("payment_status", "pending")
       .order("created_at", { ascending: false }),
     supabase
-      .from("shopping_purchases")
-      .select("id,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key))")
-      .eq("paid_by_member_id", memberId),
+      .from("shopping_purchase_shares")
+      .select(
+        "id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key),purchase:shopping_purchases!inner(id,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,settled_amount,payment_status,member:household_members(id,name,pix_key)))",
+      )
+      .eq("payment_status", "pending")
+      .eq("purchase.paid_by_member_id", memberId),
     supabase
       .from("shopping_settlement_payments")
       .select(
@@ -207,24 +200,17 @@ export default async function MyPage({
       participants,
     };
   };
-  const personalPaymentRows: SettlementPaymentWithReceipt[] = await Promise.all(
-    ((personalSettlementPayments ?? []) as unknown as SettlementPaymentRow[]).map(async (payment) => ({
-      ...payment,
-      receiptUrl: await signedReceiptUrl(supabase, payment.receipt_path),
-    })),
-  );
+  // Os comprovantes são assinados apenas quando o usuário clica para abrir.
+  // Gerar uma URL por registro durante o render tornava esta página cada vez
+  // mais lenta conforme o histórico crescia.
+  const personalPaymentRows = (personalSettlementPayments ?? []) as unknown as SettlementPaymentRow[];
   const personalPendingPayments = personalPaymentRows.filter(
     (payment) => payment.status === "pending",
   );
   const personalClosedPayments = personalPaymentRows.filter(
     (payment) => payment.status === "confirmed",
   );
-  const adminPaymentRows: SettlementPaymentWithReceipt[] = await Promise.all(
-    adminSettlementPayments.map(async (payment) => ({
-      ...payment,
-      receiptUrl: await signedReceiptUrl(supabase, payment.receipt_path),
-    })),
-  );
+  const adminPaymentRows = adminSettlementPayments;
   const adminPendingPayments = adminPaymentRows.filter(
     (payment) => payment.status === "pending",
   );
@@ -256,21 +242,22 @@ export default async function MyPage({
     accountMap.set(paidBy.id, account);
   }
 
-  for (const purchase of shoppingPaidByMe ?? []) {
-    for (const share of purchase.shopping_purchase_shares ?? []) {
-      if (share.member_id === memberId || share.payment_status !== "pending") continue;
-      const member = Array.isArray(share.member) ? share.member[0] : share.member;
-      if (!member) continue;
-      const account = accountMap.get(member.id) ?? {
-        memberId: member.id,
-        memberName: member.name,
-        pixKey: member.pix_key,
-        outgoingShares: [],
-        incomingShares: [],
-      };
-      account.incomingShares.push({ ...share, purchase });
-      accountMap.set(member.id, account);
-    }
+  for (const share of shoppingOwedToMe ?? []) {
+    if (share.member_id === memberId) continue;
+    const purchase = Array.isArray(share.purchase)
+      ? share.purchase[0]
+      : share.purchase;
+    const member = Array.isArray(share.member) ? share.member[0] : share.member;
+    if (!member || !purchase) continue;
+    const account = accountMap.get(member.id) ?? {
+      memberId: member.id,
+      memberName: member.name,
+      pixKey: member.pix_key,
+      outgoingShares: [],
+      incomingShares: [],
+    };
+    account.incomingShares.push({ ...share, purchase });
+    accountMap.set(member.id, account);
   }
 
   const netShoppingAccounts = await Promise.all(
@@ -445,9 +432,26 @@ export default async function MyPage({
       .reduce((sum, account) => sum + account.remainingNet, 0);
   const totalUnpaidCount = unpaid.length
     + netShoppingAccounts.filter((account) => account.net > 0 && account.remainingNet > 0).length;
-  const pendingReimbursements = (reimbursements ?? []).filter((r) => r.reimbursement_status === "pending");
-  const pendingReceivableCount = pendingReimbursements.length
-    + netShoppingAccounts.filter((account) => account.net < 0).length;
+  const receivableAccounts = netShoppingAccounts.filter(
+    (account) => account.net < 0 && account.remainingNet > 0,
+  );
+  const totalReceivable = receivableAccounts.reduce(
+    (sum, account) => sum + account.remainingNet,
+    0,
+  );
+  const receivableSummary = receivableAccounts.length
+    ? [
+        ...receivableAccounts
+          .slice(0, 2)
+          .map(
+            (account) =>
+              `${account.memberName}: ${currency.format(account.remainingNet)}`,
+          ),
+        ...(receivableAccounts.length > 2
+          ? [`+${receivableAccounts.length - 2} morador(es)`]
+          : []),
+      ].join(" • ")
+    : "Nenhum morador deve pagar você";
 
   const openTasks = (myTasks ?? []).filter((t) => !t.done && t.task);
   const casaTasks = openTasks.filter((t) => {
@@ -465,7 +469,7 @@ export default async function MyPage({
         <div>
           <span className="eyebrow">Minha página</span>
           <h1>Olá, {profile.full_name.split(" ")[0]}!</h1>
-          <p>Um resumo só seu: despesas, reembolsos e tarefas designadas a você.</p>
+          <p>Um resumo só seu: despesas, acertos entre moradores e tarefas designadas a você.</p>
         </div>
       </div>
 
@@ -482,11 +486,11 @@ export default async function MyPage({
         </div>
         <div className="card metric-card">
           <div className="metric-top">
-            <span>Reembolsos a receber</span>
+            <span>Você tem a receber</span>
             <span className="metric-icon"><WalletIcon /></span>
           </div>
-          <strong className="metric-value">{pendingReceivableCount}</strong>
-          <span className="metric-foot">pendente(s) de pagamento</span>
+          <strong className="metric-value">{currency.format(totalReceivable)}</strong>
+          <span className="metric-foot">{receivableSummary}</span>
         </div>
         <div className="card metric-card">
           <div className="metric-top">
@@ -593,8 +597,8 @@ export default async function MyPage({
                     <div className="purchase-proof-actions" style={{ padding: "12px 16px" }}>
                       <div className="attachment-row">
                         <span>📎 Pagamento informado: {currency.format(asNumber(pendingPayment.amount))}</span>
-                        {pendingPayment.receiptUrl && (
-                          <a href={pendingPayment.receiptUrl} target="_blank" rel="noreferrer">
+                        {pendingPayment.receipt_path && (
+                          <a href={`/app/eu/comprovantes/${pendingPayment.id}`} target="_blank" rel="noreferrer">
                             Ver {pendingPayment.receipt_name ?? "comprovante"}
                           </a>
                         )}
@@ -660,10 +664,10 @@ export default async function MyPage({
                       </div>
                       <span className="status-pill success">Pago</span>
                     </div>
-                    {payment.receiptUrl && (
+                    {payment.receipt_path && (
                       <div className="attachment-row" style={{ margin: "0 16px 14px" }}>
                         <span>📎 {payment.receipt_name ?? "comprovante"}</span>
-                        <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Ver</a>
+                        <a href={`/app/eu/comprovantes/${payment.id}`} target="_blank" rel="noreferrer">Ver</a>
                       </div>
                     )}
                   </article>
@@ -767,8 +771,8 @@ export default async function MyPage({
                       <div className="purchase-proof-actions" style={{ padding: "12px 16px" }}>
                         <div className="attachment-row">
                           <span>📎 {currency.format(asNumber(account.pendingPayment.amount))}</span>
-                          {account.pendingPayment.receiptUrl && (
-                            <a href={account.pendingPayment.receiptUrl} target="_blank" rel="noreferrer">
+                          {account.pendingPayment.receipt_path && (
+                            <a href={`/app/eu/comprovantes/${account.pendingPayment.id}`} target="_blank" rel="noreferrer">
                               Ver {account.pendingPayment.receipt_name ?? "comprovante"}
                             </a>
                           )}
@@ -833,10 +837,10 @@ export default async function MyPage({
                         </div>
                         <span className="status-pill success">Pago</span>
                       </div>
-                      {payment.receiptUrl && (
+                      {payment.receipt_path && (
                         <div className="attachment-row" style={{ margin: "0 16px 14px" }}>
                           <span>📎 {payment.receipt_name ?? "comprovante"}</span>
-                          <a href={payment.receiptUrl} target="_blank" rel="noreferrer">Ver</a>
+                          <a href={`/app/eu/comprovantes/${payment.id}`} target="_blank" rel="noreferrer">Ver</a>
                         </div>
                       )}
                     </article>

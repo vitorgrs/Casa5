@@ -27,3 +27,5 @@ export const CalendarIcon = (props: IconProps) => <IconBase {...props}><rect x="
 export const EditIcon = (props: IconProps) => <IconBase {...props}><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></IconBase>;
 export const ChecklistIcon = (props: IconProps) => <IconBase {...props}><path d="m3 6 2 2 3-3"/><path d="M9 6h12"/><path d="m3 13 2 2 3-3"/><path d="M9 13h12"/><path d="m3 20 2 2 3-3"/><path d="M9 20h12"/></IconBase>;
 export const CartIcon = (props: IconProps) => <IconBase {...props}><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M2 3h2l2.6 12.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L21 8H6"/></IconBase>;
+export const MessageIcon = (props: IconProps) => <IconBase {...props}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></IconBase>;
+export const LaundryIcon = (props: IconProps) => <IconBase {...props}><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h.01M12 6h4"/><circle cx="12" cy="14" r="5"/><path d="M9 14c1.2-1.2 2.1-1.1 3 0s1.8 1.2 3 0"/></IconBase>;

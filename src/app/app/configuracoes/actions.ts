@@ -58,22 +58,26 @@ export async function syncMercadoPago() {
     let message: string;
     const formattedBalance =
       result.balance === null ? null : currency.format(result.balance);
-    if (result.imported) {
-      message = formattedBalance
-        ? `Relatório processado com sucesso. Saldo identificado: ${formattedBalance}.`
-        : "Novo relatório importado com sucesso.";
-    } else if (result.requestDetail) {
-      message = `O Mercado Pago recusou a criação do relatório. ${result.requestDetail}`;
+    const reference = result.latestReportDate
+      ? new Date(result.latestReportDate).toLocaleString("pt-BR")
+      : null;
+    const balanceSummary = formattedBalance
+      ? `Saldo confirmado: ${formattedBalance}${reference ? `, com referência em ${reference}` : ""}.`
+      : "";
+    if (result.requestDetail) {
+      message = `${balanceSummary} O Mercado Pago recusou a nova atualização. ${result.requestDetail}`.trim();
+    } else if (result.imported) {
+      message = `${balanceSummary || "Novo relatório importado com sucesso."}${
+        result.requested
+          ? " Como a referência anterior tinha 24 horas ou mais, uma nova atualização também foi solicitada."
+          : ""
+      }`;
     } else if (result.requested) {
-      message =
-        "Uma nova geração foi solicitada ao Mercado Pago. O processamento é assíncrono; sincronize novamente mais tarde para importar o arquivo.";
-    } else if (result.latestTaskStatus === "pending") {
-      message =
-        "O relatório mais recente ainda está sendo processado pelo Mercado Pago. Aguarde e sincronize novamente mais tarde.";
+      message = `${balanceSummary} A referência tinha 24 horas ou mais, então uma nova atualização foi solicitada. O Mercado Pago a processa de forma assíncrona.`.trim();
+    } else if (result.pending) {
+      message = `${balanceSummary} Já existe uma atualização recente em processamento no Mercado Pago.`.trim();
     } else if (result.latestReportReady) {
-      message = formattedBalance
-        ? `O relatório mais recente já estava importado. Saldo confirmado: ${formattedBalance}.`
-        : "Nenhum relatório novo encontrado desde a última sincronização.";
+      message = balanceSummary || "Nenhum relatório novo encontrado desde a última sincronização.";
     } else {
       message =
         "Ainda não há arquivo pronto para importar. O Mercado Pago já recebeu a solicitação; aguarde a disponibilização do relatório.";

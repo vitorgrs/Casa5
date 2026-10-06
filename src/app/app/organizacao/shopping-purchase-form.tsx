@@ -1,10 +1,12 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { FormActionMessage } from "@/components/form-action-message";
+import { PlusIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { initialFormActionState } from "@/lib/form-action-state";
 import {
+  addShoppingItem,
   deleteShoppingItem,
   recordShoppingPurchase,
   removeItemFromShoppingPurchase,
@@ -28,16 +30,61 @@ type ShoppingItem = {
 };
 
 type PurchaseScope = "household" | "group" | "individual";
+type SplitMode = "equal" | "custom";
 
-function numberFromInput(value: string) {
+function hundredthsFromInput(value: string) {
   let normalized = value.trim().replace(/\s/g, "");
   if (normalized.includes(",") && normalized.includes(".")) {
     normalized = normalized.replace(/\./g, "").replace(",", ".");
   } else if (normalized.includes(",")) {
     normalized = normalized.replace(",", ".");
   }
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const match = normalized.match(/^([+-]?)(\d+)(?:\.(\d*))?$/);
+  if (!match) return 0;
+  const fraction = `${match[3] ?? ""}000`;
+  let hundredths = Number(match[2]) * 100 + Number(fraction.slice(0, 2));
+  if (Number(fraction[2]) >= 5) hundredths += 1;
+  if (!Number.isSafeInteger(hundredths)) return 0;
+  return match[1] === "-" ? -hundredths : hundredths;
+}
+
+export function ShoppingItemCreateForm({ redirectTo }: { redirectTo: string }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [state, formAction] = useActionState(addShoppingItem, initialFormActionState);
+
+  useEffect(() => {
+    if (state.status === "success") formRef.current?.reset();
+  }, [state]);
+
+  return (
+    <form ref={formRef} action={formAction} className="form-grid cols-3">
+      <input type="hidden" name="redirect_to" value={redirectTo} />
+      <label className="field">
+        Item
+        <input name="name" required placeholder="Ex.: Arroz" />
+      </label>
+      <label className="field">
+        Quantidade planejada
+        <input name="quantity_planned" inputMode="decimal" placeholder="Ex.: 2" />
+      </label>
+      <label className="field">
+        Categoria
+        <input name="category" placeholder="Ex.: Mercearia" />
+      </label>
+      <label className="field span-3">
+        Observação
+        <input name="note" placeholder="Opcional" />
+      </label>
+      <div className="span-3">
+        <FormActionMessage state={state} />
+      </div>
+      <div className="form-actions span-3">
+        <SubmitButton className="button secondary" pendingLabel="Adicionando...">
+          <PlusIcon /> Adicionar à lista
+        </SubmitButton>
+      </div>
+    </form>
+  );
 }
 
 export function ShoppingListManager({
@@ -53,6 +100,14 @@ export function ShoppingListManager({
 }) {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const availableIds = new Set(items.map((item) => item.id));
+    setSelectedIds((current) => {
+      const next = current.filter((id) => availableIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [items]);
 
   const visibleItems = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("pt-BR");
@@ -115,41 +170,18 @@ export function ShoppingListManager({
             </span>
 
             {canManage && (
-              <form action={toggleShoppingChecked}>
-                <input type="hidden" name="item_id" value={item.id} />
-                <input type="hidden" name="next_status" value={item.status === "checked" ? "list" : "checked"} />
-                <input type="hidden" name="redirect_to" value={redirectTo} />
-                <button className="button ghost small" type="submit">
-                  {item.status === "checked" ? "Desmarcar carrinho" : "Marcar no carrinho"}
-                </button>
-              </form>
+              <ShoppingItemToggleForm item={item} redirectTo={redirectTo} />
             )}
 
             {canManage && (
               <details className="shopping-inline-editor">
                 <summary>Editar</summary>
-                <form action={updateShoppingItem} className="stack-form">
-                  <input type="hidden" name="item_id" value={item.id} />
-                  <input type="hidden" name="redirect_to" value={redirectTo} />
-                  <label>
-                    Nome
-                    <input name="name" defaultValue={item.name} required />
-                  </label>
-                  <label>
-                    Quantidade planejada
-                    <input name="quantity_planned" inputMode="decimal" defaultValue={item.quantity_planned ?? ""} />
-                  </label>
-                  <SubmitButton className="button secondary small" pendingLabel="Salvando...">Salvar</SubmitButton>
-                </form>
+                <ShoppingItemEditForm item={item} redirectTo={redirectTo} />
               </details>
             )}
 
             {canManage && (
-              <form action={deleteShoppingItem}>
-                <input type="hidden" name="item_id" value={item.id} />
-                <input type="hidden" name="redirect_to" value={redirectTo} />
-                <button className="button danger small" type="submit">Excluir</button>
-              </form>
+              <ShoppingItemDeleteForm itemId={item.id} redirectTo={redirectTo} />
             )}
           </article>
         ))}
@@ -157,7 +189,6 @@ export function ShoppingListManager({
 
       {canManage && selectedItems.length > 0 && (
         <PurchaseCheckoutForm
-          key={selectedIds.slice().sort().join(",")}
           items={selectedItems}
           members={members}
           redirectTo={redirectTo}
@@ -166,6 +197,89 @@ export function ShoppingListManager({
         />
       )}
     </>
+  );
+}
+
+function ShoppingItemToggleForm({
+  item,
+  redirectTo,
+}: {
+  item: ShoppingItem;
+  redirectTo: string;
+}) {
+  const [state, formAction] = useActionState(
+    toggleShoppingChecked,
+    initialFormActionState,
+  );
+
+  return (
+    <form action={formAction} className="inline-mutation-form">
+      <input type="hidden" name="item_id" value={item.id} />
+      <input
+        type="hidden"
+        name="next_status"
+        value={item.status === "checked" ? "list" : "checked"}
+      />
+      <input type="hidden" name="redirect_to" value={redirectTo} />
+      <SubmitButton className="button ghost small" pendingLabel="Salvando...">
+        {item.status === "checked" ? "Desmarcar carrinho" : "Marcar no carrinho"}
+      </SubmitButton>
+      {state.status === "error" && <FormActionMessage state={state} inline />}
+    </form>
+  );
+}
+
+function ShoppingItemEditForm({
+  item,
+  redirectTo,
+}: {
+  item: ShoppingItem;
+  redirectTo: string;
+}) {
+  const [state, formAction] = useActionState(updateShoppingItem, initialFormActionState);
+
+  return (
+    <form action={formAction} className="stack-form">
+      <input type="hidden" name="item_id" value={item.id} />
+      <input type="hidden" name="redirect_to" value={redirectTo} />
+      <label>
+        Nome
+        <input name="name" defaultValue={item.name} required />
+      </label>
+      <label>
+        Quantidade planejada
+        <input
+          name="quantity_planned"
+          inputMode="decimal"
+          defaultValue={item.quantity_planned ?? ""}
+        />
+      </label>
+      <SubmitButton className="button secondary small" pendingLabel="Salvando...">
+        Salvar
+      </SubmitButton>
+      <FormActionMessage state={state} inline />
+    </form>
+  );
+}
+
+function ShoppingItemDeleteForm({
+  itemId,
+  redirectTo,
+}: {
+  itemId: string;
+  redirectTo: string;
+}) {
+  const [state, formAction] = useActionState(deleteShoppingItem, initialFormActionState);
+
+  return (
+    <form action={formAction} className="inline-mutation-form">
+      <input type="hidden" name="item_id" value={itemId} />
+      <input type="hidden" name="redirect_to" value={redirectTo} />
+      <SubmitButton className="button danger small" pendingLabel="Excluindo...">
+        Excluir
+      </SubmitButton>
+      {state.status === "error" && <FormActionMessage state={state} inline />}
+    </form>
   );
 }
 
@@ -182,26 +296,49 @@ function PurchaseCheckoutForm({
   onCancel: () => void;
   onSuccess: () => void;
 }) {
-  const router = useRouter();
   const [state, formAction] = useActionState(recordShoppingPurchase, initialFormActionState);
   const [scope, setScope] = useState<PurchaseScope>("household");
+  const [splitMode, setSplitMode] = useState<SplitMode>("equal");
   const [participants, setParticipants] = useState<string[]>(members.map((member) => member.id));
   const [quantities, setQuantities] = useState<Record<string, string>>(() =>
     Object.fromEntries(items.map((item) => [item.id, String(item.quantity_planned ?? 1)])),
   );
   const [unitPrices, setUnitPrices] = useState<Record<string, string>>({});
+  const [customShares, setCustomShares] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setQuantities((current) =>
+      Object.fromEntries(
+        items.map((item) => [
+          item.id,
+          current[item.id] ?? String(item.quantity_planned ?? 1),
+        ]),
+      ),
+    );
+    setUnitPrices((current) =>
+      Object.fromEntries(items.map((item) => [item.id, current[item.id] ?? ""])),
+    );
+  }, [items]);
 
   useEffect(() => {
     if (state.status !== "success") return;
     onSuccess();
-    router.refresh();
-  }, [state, onSuccess, router]);
+  }, [state, onSuccess]);
 
-  const purchaseTotal = items.reduce(
+  const purchaseTotalCents = items.reduce(
     (sum, item) =>
       sum +
-      numberFromInput(quantities[item.id] ?? "0") *
-        numberFromInput(unitPrices[item.id] ?? "0"),
+      Math.round(
+        (hundredthsFromInput(quantities[item.id] ?? "0") *
+          hundredthsFromInput(unitPrices[item.id] ?? "0")) /
+          100,
+      ),
+    0,
+  );
+  const purchaseTotal = purchaseTotalCents / 100;
+  const selectedMembers = members.filter((member) => participants.includes(member.id));
+  const customTotalCents = selectedMembers.reduce(
+    (sum, member) => sum + hundredthsFromInput(customShares[member.id] ?? "0"),
     0,
   );
 
@@ -223,6 +360,7 @@ function PurchaseCheckoutForm({
     <div className="purchase-form-wrap" id="compra">
       <form action={formAction} className="stack-form purchase-form">
         <input type="hidden" name="redirect_to" value={redirectTo} />
+        <input type="hidden" name="split_mode" value={splitMode} />
         {items.map((item) => (
           <input key={item.id} type="hidden" name="selected_item_ids" value={item.id} />
         ))}
@@ -235,8 +373,11 @@ function PurchaseCheckoutForm({
         <div className="purchase-item-values">
           {items.map((item) => {
             const subtotal =
-              numberFromInput(quantities[item.id] ?? "0") *
-              numberFromInput(unitPrices[item.id] ?? "0");
+              Math.round(
+                (hundredthsFromInput(quantities[item.id] ?? "0") *
+                  hundredthsFromInput(unitPrices[item.id] ?? "0")) /
+                  100,
+              ) / 100;
             return (
               <div className="purchase-item-value-row" key={item.id}>
                 <strong>{item.name}</strong>
@@ -347,16 +488,67 @@ function PurchaseCheckoutForm({
               );
             })}
           </div>
-          <p className="note">
-            O total é dividido igualmente entre os participantes selecionados.
-          </p>
         </div>
 
+        <div className="form-section">
+          <label className="field">
+            Como dividir o valor?
+            <select
+              value={splitMode}
+              onChange={(event) => setSplitMode(event.target.value as SplitMode)}
+            >
+              <option value="equal">Igualmente entre os participantes</option>
+              <option value="custom">Valores personalizados</option>
+            </select>
+          </label>
+
+          {splitMode === "equal" ? (
+            <p className="note">
+              O total será dividido igualmente, com ajuste automático dos centavos.
+            </p>
+          ) : (
+            <>
+              <div className="form-grid cols-3" style={{ marginTop: 12 }}>
+                {selectedMembers.map((member) => (
+                  <label className="field" key={member.id}>
+                    {member.name}
+                    <input
+                      name={`share_${member.id}`}
+                      inputMode="decimal"
+                      value={customShares[member.id] ?? ""}
+                      onChange={(event) =>
+                        setCustomShares((current) => ({
+                          ...current,
+                          [member.id]: event.target.value,
+                        }))
+                      }
+                      placeholder="0,00"
+                      required
+                    />
+                  </label>
+                ))}
+              </div>
+              <div
+                className={`message ${customTotalCents === purchaseTotalCents ? "success" : "info"}`}
+                style={{ marginTop: 12 }}
+              >
+                Distribuído: {(customTotalCents / 100).toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                })} de {purchaseTotal.toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL",
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <FormActionMessage state={state} />
         <div className="form-actions">
           <SubmitButton pendingLabel="Salvando compra...">Registrar compra</SubmitButton>
           <button className="button ghost" type="button" onClick={onCancel}>Cancelar seleção</button>
         </div>
-        {state.status === "error" && <div className="message error">{state.message}</div>}
       </form>
     </div>
   );
@@ -373,13 +565,8 @@ export function ShoppingPurchaseMutationForm({
   itemId?: string;
   redirectTo: string;
 }) {
-  const router = useRouter();
   const action = mode === "remove-item" ? removeItemFromShoppingPurchase : resetShoppingPurchase;
   const [state, formAction] = useActionState(action, initialFormActionState);
-
-  useEffect(() => {
-    if (state.status === "success") router.refresh();
-  }, [state, router]);
 
   return (
     <form action={formAction} className="purchase-mutation-form">
@@ -392,9 +579,7 @@ export function ShoppingPurchaseMutationForm({
       >
         {mode === "remove-item" ? "Retirar da compra" : "Voltar itens à lista"}
       </SubmitButton>
-      {state.status !== "idle" && (
-        <span className={`message ${state.status} inline-action-message`}>{state.message}</span>
-      )}
+      <FormActionMessage state={state} inline />
     </form>
   );
 }

@@ -2,6 +2,10 @@ import { parseCsv } from "@/lib/csv";
 
 const BASE_URL = "https://api.mercadopago.com";
 const RELEASE_REPORT_PATH = "/v1/account/release_report";
+const MERCADO_PAGO_TIMEOUT_MS = 10_000;
+const REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const PENDING_REQUEST_DEDUPE_MS = 90 * 60 * 1000;
+const BALANCE_PARSER_VERSION = 3;
 
 function headers() {
   const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -13,12 +17,29 @@ function headers() {
   };
 }
 
+async function mercadoPagoFetch(path: string, init?: RequestInit) {
+  try {
+    return await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers: { ...headers(), ...(init?.headers ?? {}) },
+      cache: "no-store",
+      signal: init?.signal ?? AbortSignal.timeout(MERCADO_PAGO_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "AbortError" || error.name === "TimeoutError")
+    ) {
+      throw new Error(
+        "O Mercado Pago demorou para responder. Tente sincronizar novamente em alguns instantes.",
+      );
+    }
+    throw error;
+  }
+}
+
 async function mpFetch(path: string, init?: RequestInit) {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: { ...headers(), ...(init?.headers ?? {}) },
-    cache: "no-store"
-  });
+  const response = await mercadoPagoFetch(path, init);
 
   if (!response.ok) {
     const body = await response.text();
@@ -43,6 +64,9 @@ const requiredColumns = [
 
 type ReportConfig = {
   separator?: string;
+  include_withdrawal_at_end?: boolean;
+  check_available_balance?: boolean;
+  compensate_detail?: boolean;
   frequency?: { hour: number; type: "daily" | "weekly" | "monthly"; value?: number };
   columns?: Array<{ key: string }>;
 };
@@ -69,18 +93,19 @@ function reportConfigPayload(current?: ReportConfig) {
  * O endpoint correto atualmente é o relatório de Liberações (release_report).
  */
 export async function ensureBankReportConfig() {
-  const check = await fetch(`${BASE_URL}${RELEASE_REPORT_PATH}/config`, {
-    headers: headers(),
-    cache: "no-store"
-  });
+  const check = await mercadoPagoFetch(`${RELEASE_REPORT_PATH}/config`);
 
   if (check.ok) {
     const current = (await check.json()) as ReportConfig;
     const currentColumns = new Set((current.columns ?? []).map((column) => column.key));
     const missingColumns = requiredColumns.some((column) => !currentColumns.has(column));
     const wrongSeparator = Boolean(current.separator && current.separator !== ",");
+    const missingBalanceOptions =
+      current.include_withdrawal_at_end !== true ||
+      current.check_available_balance !== true ||
+      current.compensate_detail !== true;
 
-    if (!missingColumns && !wrongSeparator) return;
+    if (!missingColumns && !wrongSeparator && !missingBalanceOptions) return;
 
     await mpFetch(`${RELEASE_REPORT_PATH}/config`, {
       method: "PUT",
@@ -114,19 +139,9 @@ export type GenerateReportResult = {
   detail: string | null;
 };
 
-/**
- * BUG ENCONTRADO: a função antiga sempre lia `response.ok`, que é `true`
- * para qualquer status 2xx. A documentação oficial do Mercado Pago avisa
- * que o endpoint de criação pode responder `202` (aceito, relatório será
- * gerado) OU `203 Non-Authoritative Information` — que significa "a
- * requisição foi entendida, mas o relatório NÃO pôde ser criado; peça
- * novamente com as datas indicadas pelo sistema". Como 203 também é um
- * status 2xx, o código antigo tratava isso como sucesso silenciosamente,
- * então o relatório nunca era realmente criado e o app ficava repetindo
- * "nova atualização solicitada" para sempre.
- * Agora tratamos 202 e 203 de forma explícita e devolvemos o motivo real
- * para a tela de Configurações.
- */
+// A criação é assíncrona: 202 confirma que o relatório entrou na fila. O 203
+// também pertence à faixa 2xx, mas informa que o intervalo foi recusado; por
+// isso ele precisa ser tratado separadamente e exibido ao administrador.
 export async function generateBankReport(days = 35): Promise<GenerateReportResult> {
   // O relatório de Liberações aceita no máximo 60 dias.
   const safeDays = Math.min(Math.max(Math.trunc(days), 1), 59);
@@ -139,11 +154,9 @@ export async function generateBankReport(days = 35): Promise<GenerateReportResul
     end_date: toMercadoPagoUtcIso(end)
   };
 
-  const response = await fetch(`${BASE_URL}${RELEASE_REPORT_PATH}`, {
+  const response = await mercadoPagoFetch(RELEASE_REPORT_PATH, {
     method: "POST",
-    headers: headers(),
     body: JSON.stringify(payload),
-    cache: "no-store"
   });
 
   const bodyText = await response.text();
@@ -204,6 +217,16 @@ function reportTimestamp(report: DatedReport) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function reportCoverageTimestamp(report: DatedReport) {
+  const timestamp = Date.parse(report.end_date);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isPendingTask(task: ReportTask) {
+  const status = task.status?.toLowerCase();
+  return status === "pending" || status === "processing" || status === "in_process";
+}
+
 /**
  * O formato de `/list` varia entre contas: ele pode expor tarefas de geração
  * (`pending`/`processed`) ou registros já habilitados. Aqui ele serve apenas
@@ -227,7 +250,11 @@ export async function listBankReports(): Promise<ReadyReport[]> {
   const reports = Array.isArray(data) ? data : (data.results ?? []);
   return reports
     .filter((report) => Boolean(report.file_name))
-    .sort((a, b) => reportTimestamp(b) - reportTimestamp(a));
+    .sort(
+      (a, b) =>
+        reportCoverageTimestamp(b) - reportCoverageTimestamp(a) ||
+        reportTimestamp(b) - reportTimestamp(a),
+    );
 }
 
 function parseMoney(value: string | undefined) {
@@ -340,83 +367,109 @@ export async function syncLatestMercadoPagoReport(
   let imported = false;
   let balance: number | null = null;
   let requestDetail: string | null = null;
+  let syncedAt: string | null = null;
+  let snapshotCoverageAt = 0;
 
   if (latestReadyReport) {
     const latest = latestReadyReport;
     const fileName = latest.file_name;
     const { data: existing, error: existingError } = await supabase
       .from("wallet_snapshots")
-      .select("id,balance")
+      .select("id,balance,observed_at,created_at,raw_payload")
       .eq("household_id", householdId)
       .eq("external_id", fileName)
       .maybeSingle();
     if (existingError) throw new Error(existingError.message);
+    if (existing?.observed_at) {
+      const timestamp = Date.parse(existing.observed_at);
+      snapshotCoverageAt = Number.isFinite(timestamp) ? timestamp : 0;
+    }
 
-    const result = await downloadAndCalculateBalance(fileName);
-    const observedAt =
-      result.lastMovementAt ?? latest.end_date ?? new Date().toISOString();
-    const snapshot = {
-      balance: result.balance,
-      observed_at: observedAt,
-      raw_payload: {
-        report_id: latest.id,
-        file_name: fileName,
-        transactions: result.transactions,
-        begin_date: latest.begin_date,
-        end_date: latest.end_date,
-      },
-    };
+    const rawPayload = existing?.raw_payload as
+      | { parser_version?: number }
+      | null;
+    const needsImport =
+      !existing || rawPayload?.parser_version !== BALANCE_PARSER_VERSION;
 
-    if (existing) {
-      const existingCents = Math.round(Number(existing.balance) * 100);
-      const calculatedCents = Math.round(result.balance * 100);
-      if (existingCents !== calculatedCents) {
-        // Repara snapshots criados pela versão antiga, que lia o zero da
-        // linha `total` em vez do saldo da última movimentação.
+    if (needsImport) {
+      const result = await downloadAndCalculateBalance(fileName);
+      // `observed_at` representa até quando o relatório conferiu o saldo.
+      // A última movimentação pode ser muito mais antiga e fica nos metadados.
+      const observedAt =
+        latest.end_date ?? latest.date_created ?? new Date().toISOString();
+      const snapshot = {
+        balance: result.balance,
+        observed_at: observedAt,
+        raw_payload: {
+          parser_version: BALANCE_PARSER_VERSION,
+          report_id: latest.id,
+          file_name: fileName,
+          transactions: result.transactions,
+          begin_date: latest.begin_date,
+          end_date: latest.end_date,
+          report_created_at: latest.date_created ?? null,
+          last_movement_at: result.lastMovementAt,
+        },
+      };
+
+      if (existing) {
         const { error } = await supabase
           .from("wallet_snapshots")
           .update(snapshot)
           .eq("id", existing.id);
         if (error) throw new Error(error.message);
-        imported = true;
+      } else {
+        const { error } = await supabase.from("wallet_snapshots").insert({
+          household_id: householdId,
+          ...snapshot,
+          source: "mercado_pago",
+          external_id: fileName,
+          created_by: createdBy,
+        });
+        if (error) throw new Error(error.message);
       }
-      balance = result.balance;
-    } else {
-      const { error } = await supabase.from("wallet_snapshots").insert({
-        household_id: householdId,
-        ...snapshot,
-        source: "mercado_pago",
-        external_id: fileName,
-        created_by: createdBy
-      });
-      if (error) throw new Error(error.message);
       imported = true;
       balance = result.balance;
+      syncedAt = new Date().toISOString();
+      const observedTimestamp = Date.parse(observedAt);
+      snapshotCoverageAt = Number.isFinite(observedTimestamp)
+        ? observedTimestamp
+        : 0;
+    } else {
+      balance = Number(existing.balance);
+      syncedAt = existing.created_at;
     }
-
-    // Relatórios diferentes podem terminar na mesma movimentação. Versões
-    // antigas do parser salvaram 0,00 ao ler a linha `total`, deixando dois
-    // snapshots com o mesmo observed_at e valores diferentes. Além de usar
-    // created_at como desempate nas telas, reparamos esses registros antigos
-    // quando o relatório mais recente comprova o saldo daquela movimentação.
-    const { data: repairedSnapshots, error: repairError } = await supabase
+  } else {
+    const { data: latestSnapshot, error: snapshotError } = await supabase
       .from("wallet_snapshots")
-      .update({ balance: result.balance })
+      .select("balance,observed_at,created_at")
       .eq("household_id", householdId)
       .eq("source", "mercado_pago")
-      .eq("observed_at", observedAt)
-      .neq("balance", result.balance)
-      .select("id");
-    if (repairError) throw new Error(repairError.message);
-    if ((repairedSnapshots ?? []).length > 0) imported = true;
+      .order("observed_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (snapshotError) throw new Error(snapshotError.message);
+    if (latestSnapshot) {
+      balance = Number(latestSnapshot.balance);
+      syncedAt = latestSnapshot.created_at;
+      const timestamp = Date.parse(latestSnapshot.observed_at);
+      snapshotCoverageAt = Number.isFinite(timestamp) ? timestamp : 0;
+    }
   }
 
-  const newestTaskAt = tasks[0] ? reportTimestamp(tasks[0]) : 0;
-  const newestReportAt = reports[0] ? reportTimestamp(reports[0]) : 0;
-  const newestCreatedAt = Math.max(newestTaskAt, newestReportAt);
-  const twentyHoursAgo = Date.now() - 20 * 60 * 60 * 1000;
+  const coverageAt = Math.max(
+    latestReadyReport ? reportCoverageTimestamp(latestReadyReport) : 0,
+    snapshotCoverageAt,
+  );
+  const stale = coverageAt < Date.now() - REPORT_MAX_AGE_MS;
+  const recentPendingTask = tasks.find(
+    (task) =>
+      isPendingTask(task) &&
+      reportTimestamp(task) >= Date.now() - PENDING_REQUEST_DEDUPE_MS,
+  );
   let requested = false;
-  if (newestCreatedAt < twentyHoursAgo) {
+  if (stale && !recentPendingTask) {
     const result = await generateBankReport();
     requested = result.accepted;
     if (!result.accepted) {
@@ -432,9 +485,12 @@ export async function syncLatestMercadoPagoReport(
     requested,
     requestDetail,
     latestReportReady: Boolean(reports[0]),
-    latestTaskStatus: tasks[0]?.status ?? null,
-    latestReportDate: newestCreatedAt
-      ? new Date(newestCreatedAt).toISOString()
+    latestTaskStatus: recentPendingTask?.status ?? tasks[0]?.status ?? null,
+    latestReportDate: coverageAt
+      ? new Date(coverageAt).toISOString()
       : null,
+    syncedAt,
+    stale,
+    pending: Boolean(recentPendingTask),
   };
 }

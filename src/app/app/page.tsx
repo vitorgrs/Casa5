@@ -193,7 +193,9 @@ export default async function DashboardPage() {
             {!canViewWallet
               ? "Peça permissão ao administrador"
               : walletResult.data
-                ? `Atualizado em ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}`
+                ? walletResult.data.source === "mercado_pago"
+                  ? `Saldo referente a ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}`
+                  : `Informado em ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}`
                 : "Configure o token em Configurações"}
           </span>
         </div>

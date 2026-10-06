@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { signOut } from "@/app/login/actions";
 import { Logo } from "@/components/logo";
-import { BellIcon, ChecklistIcon, HomeIcon, LogoutIcon, SettingsIcon, SparkIcon, UsersIcon, WalletIcon } from "@/components/icons";
+import { BellIcon, ChecklistIcon, HomeIcon, LogoutIcon, MessageIcon, SettingsIcon, SparkIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import type { AppProfile } from "@/lib/auth";
 
 const nav = [
@@ -14,6 +14,7 @@ const nav = [
   { href: "/app/despesas", label: "Despesas", icon: WalletIcon },
   { href: "/app/limpeza", label: "Casa em dia", icon: SparkIcon },
   { href: "/app/organizacao", label: "Organização", icon: ChecklistIcon },
+  { href: "/app/reclamacoes", label: "Reclamações", icon: MessageIcon },
   { href: "/app/moradores", label: "Moradores", icon: UsersIcon },
   { href: "/app/configuracoes", label: "Configurações", icon: SettingsIcon }
 ];

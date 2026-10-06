@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
+import { emailConfigured } from "@/lib/email";
 import { asNumber, currency } from "@/lib/format";
 import {
   addManualBalance,
@@ -10,6 +11,15 @@ import {
   syncMercadoPago,
   updateReminderSettings,
 } from "./actions";
+
+function ageLabel(value: string) {
+  const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
+  const hours = Math.floor(elapsed / (60 * 60 * 1000));
+  if (hours < 1) return "há menos de 1 hora";
+  if (hours < 24) return `há ${hours} hora${hours === 1 ? "" : "s"}`;
+  const days = Math.floor(hours / 24);
+  return `há ${days} dia${days === 1 ? "" : "s"}`;
+}
 
 export default async function SettingsPage({
   searchParams,
@@ -44,7 +54,7 @@ export default async function SettingsPage({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const brevoConfigured = Boolean(process.env.BREVO_API_KEY) && Boolean(process.env.BREVO_FROM_EMAIL);
+  const brevoConfigured = emailConfigured();
 
   return (
     <>
@@ -87,7 +97,9 @@ export default async function SettingsPage({
             </div>
             <div className="wallet-meta">
               {latest
-                ? `Última referência: ${new Date(latest.observed_at).toLocaleString("pt-BR")} • ${latest.source === "mercado_pago" ? "sincronização automática" : "registro manual"}`
+                ? latest.source === "mercado_pago"
+                  ? `Saldo referente a ${new Date(latest.observed_at).toLocaleString("pt-BR")} (${ageLabel(latest.observed_at)}) • importado em ${new Date(latest.created_at).toLocaleString("pt-BR")}`
+                  : `Saldo informado manualmente em ${new Date(latest.observed_at).toLocaleString("pt-BR")}`
                 : "Configure o token e solicite a primeira sincronização."}
             </div>
             {profile.role === "admin" && (
@@ -138,7 +150,11 @@ export default async function SettingsPage({
                         "pt-BR",
                       )}
                     </strong>
-                    <small>referência</small>
+                    <small>
+                      {snapshot.source === "mercado_pago"
+                        ? `referência • ${ageLabel(snapshot.observed_at)}`
+                        : "registro manual"}
+                    </small>
                   </div>
                   <span
                     className={`status-pill ${snapshot.source === "mercado_pago" ? "success" : "info"}`}
@@ -217,17 +233,19 @@ export default async function SettingsPage({
           <section className="card pad">
             <h3 style={{ marginTop: 0 }}>Automação diária</h3>
             <p className="note">
-              A Vercel executa uma rotina gratuita uma vez por dia (agendada
-              para 08:00 no horário de Fortaleza/Rio). No plano gratuito da
-              Vercel, esse horário pode variar um pouco e o primeiro disparo
-              só acontece na próxima janela depois do deploy — então é normal
-              não ter rodado ainda se você acabou de configurar.
+              A Vercel envia o lembrete da casa às 06:00 e executa a rotina
+              financeira às 07:00, no horário de Fortaleza/Rio. No plano
+              gratuito, o horário pode variar dentro da janela e o primeiro
+              disparo só acontece depois do deploy — então é normal não ter
+              rodado ainda se você acabou de configurar.
             </p>
             {lastRun ? (
               <div className="message info">
                 Última execução: {new Date(lastRun.created_at).toLocaleString("pt-BR")}
                 <br />
                 Lembretes: {(lastRun.metadata as { reminders?: string })?.reminders ?? "—"}
+                <br />
+                Rotina da casa: {(lastRun.metadata as { choreReminder?: string })?.choreReminder ?? "—"}
                 <br />
                 Mercado Pago: {(lastRun.metadata as { mercadoPago?: string })?.mercadoPago ?? "—"}
               </div>
@@ -246,7 +264,8 @@ export default async function SettingsPage({
               <p className="note">
                 Usa a API transacional do Brevo. No plano gratuito, cadastre e
                 confirme um remetente individual, como seu Gmail, e defina{" "}
-                <code>BREVO_API_KEY</code> e <code>BREVO_FROM_EMAIL</code> nas
+                <code>BREVO_API_KEY</code> e <code>BREVO_FROM_EMAIL</code> (ou
+                <code> RESEND_FROM</code>) nas
                 variáveis de ambiente da Vercel. O nome do remetente pode ser
                 personalizado com <code>BREVO_FROM_NAME</code>.
               </p>

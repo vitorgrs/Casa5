@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { FormEvent, useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
+import { initialFormActionState } from "@/lib/form-action-state";
 import { createExpense, updateExpense } from "./actions";
 
 type Member = { id: string; name: string; initials: string; color_key: string };
@@ -89,8 +91,13 @@ export function ExpenseForm({
   const [reimbursementAmount, setReimbursementAmount] = useState(
     expense?.reimbursement_amount?.toFixed(2) ?? "",
   );
+  const router = useRouter();
   const action = expense ? updateExpense : createExpense;
-  const parsedAmount = Number(amount.replace(",", ".")) || 0;
+  const [actionState, formAction] = useActionState(
+    action,
+    initialFormActionState,
+  );
+  const parsedAmount = parseMoney(amount) ?? 0;
   const equalValue = selected.size ? parsedAmount / selected.size : 0;
   const customMembers = members.filter((member) => selected.has(member.id));
   const customTotal = customMembers.reduce(
@@ -107,6 +114,16 @@ export function ExpenseForm({
     mode === "custom" && Math.abs(customTotal - parsedAmount) > 0.01
       ? `A divisão personalizada soma R$ ${customTotal.toFixed(2)}, mas o valor total é R$ ${parsedAmount.toFixed(2)}. Deseja salvar mesmo assim?`
       : null;
+
+  useEffect(() => {
+    if (actionState.status !== "success") return;
+    const target = cancelHref ?? redirectTo ?? "/app/despesas";
+    const separator = target.includes("?") ? "&" : "?";
+    router.replace(
+      `${target}${separator}success=${encodeURIComponent(actionState.message)}`,
+      { scroll: false },
+    );
+  }, [actionState, cancelHref, redirectTo, router]);
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -146,7 +163,7 @@ export function ExpenseForm({
 
   return (
     <>
-      <form ref={formRef} action={action} onSubmit={handleSubmit}>
+      <form ref={formRef} action={formAction} onSubmit={handleSubmit}>
         {redirectTo && (
           <input type="hidden" name="redirect_to" value={redirectTo} />
         )}
@@ -343,6 +360,11 @@ export function ExpenseForm({
             Cancelar
           </Link>
         </div>
+        {actionState.status === "error" && (
+          <div className="message error" role="alert">
+            {actionState.message}
+          </div>
+        )}
       </form>
 
       {showMismatchModal && splitMismatchMessage && (

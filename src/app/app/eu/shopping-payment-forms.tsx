@@ -1,14 +1,24 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, type ChangeEvent } from "react";
+import {
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   confirmShoppingNetPayment,
+  finalizeShoppingNetReceiptUpload,
+  prepareShoppingNetReceiptUpload,
   recordShoppingNetPaymentAsAdmin,
-  uploadShoppingNetReceipt,
 } from "@/app/app/organizacao/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { initialFormActionState } from "@/lib/form-action-state";
+import { createClient } from "@/lib/supabase/client";
+import { RECEIPT_BUCKET, validateReceiptFile } from "@/lib/storage";
 
 function ActionMessage({
   state,
@@ -41,30 +51,89 @@ export function ShoppingReceiptUploadForm({
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const paymentRef = useRef<HTMLInputElement>(null);
+  const [supabase] = useState(() => createClient());
   const [fileName, setFileName] = useState<string | null>(null);
-  const [state, formAction] = useActionState(
-    uploadShoppingNetReceipt,
-    initialFormActionState,
-  );
-
-  useEffect(() => {
-    if (state.status !== "success") return;
-    formRef.current?.reset();
-    setFileName(null);
-    router.refresh();
-  }, [router, state.status]);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     setFileName(event.target.files?.[0]?.name ?? null);
+    setMessage(null);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    const paymentAmount = paymentRef.current?.value ?? "";
+    if (!file) {
+      setMessage({ kind: "error", text: "Selecione um arquivo." });
+      return;
+    }
+    const validationError = validateReceiptFile(file);
+    if (validationError) {
+      setMessage({ kind: "error", text: validationError });
+      return;
+    }
+
+    setPending(true);
+    setMessage(null);
+    try {
+      const preparation = await prepareShoppingNetReceiptUpload(shareId, {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+      if (!preparation.ok || !preparation.path || !preparation.token) {
+        setMessage({ kind: "error", text: preparation.message });
+        return;
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from(RECEIPT_BUCKET)
+        .uploadToSignedUrl(preparation.path, preparation.token, file, {
+          contentType: file.type || undefined,
+          upsert: false,
+        });
+      if (uploadError) {
+        setMessage({ kind: "error", text: uploadError.message });
+        return;
+      }
+
+      const result = await finalizeShoppingNetReceiptUpload(
+        shareId,
+        paymentAmount,
+        { path: preparation.path, name: file.name || "comprovante" },
+      );
+      if (!result.ok) {
+        setMessage({ kind: "error", text: result.message });
+        return;
+      }
+
+      formRef.current?.reset();
+      setFileName(null);
+      setMessage({ kind: "success", text: result.message });
+      router.refresh();
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Não foi possível enviar o comprovante.",
+      });
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
-    <form ref={formRef} action={formAction} className="attachment-upload-form">
-      <input type="hidden" name="share_id" value={shareId} />
-      <input type="hidden" name="redirect_to" value={redirectTo} />
+    <form ref={formRef} onSubmit={handleSubmit} className="attachment-upload-form">
       <label className="field">
         Valor pago
         <input
+          ref={paymentRef}
           type="number"
           name="payment_amount"
           min="0.01"
@@ -73,22 +142,35 @@ export function ShoppingReceiptUploadForm({
           defaultValue={defaultValue.toFixed(2)}
           inputMode="decimal"
           required
+          disabled={pending}
         />
       </label>
       <label className="file-input-label">
         <input
+          ref={fileRef}
           type="file"
           name="file"
           accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
           onChange={handleChange}
           required
+          disabled={pending}
         />
-        <span>{fileName ?? "Escolher arquivo (PDF ou foto)"}</span>
+        <span>{fileName ?? "Escolher arquivo (PDF ou foto, até 8MB)"}</span>
       </label>
-      <SubmitButton className="button secondary small" pendingLabel="Enviando...">
-        {label}
-      </SubmitButton>
-      <ActionMessage state={state} />
+      <button className="button secondary small" type="submit" disabled={pending}>
+        {pending ? (
+          <>
+            <span className="spinner" aria-hidden="true" /> Enviando...
+          </>
+        ) : (
+          label
+        )}
+      </button>
+      {message && (
+        <div className={`message ${message.kind} inline-action-message`} role="status">
+          {message.text}
+        </div>
+      )}
     </form>
   );
 }

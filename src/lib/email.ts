@@ -6,6 +6,7 @@
  * Variáveis esperadas:
  *   BREVO_API_KEY=xkeysib-...
  *   BREVO_FROM_EMAIL=seuemail@gmail.com
+ *   RESEND_FROM=Casa Cinco <seuemail@gmail.com> (alternativa já usada no deploy)
  *   BREVO_FROM_NAME=Casa Cinco (opcional)
  */
 
@@ -58,22 +59,32 @@ function formatEmailDate(value: string | null) {
     : date.toLocaleDateString("pt-BR");
 }
 
+function configuredFromEmail() {
+  const configured =
+    process.env.BREVO_FROM_EMAIL?.trim() || process.env.RESEND_FROM?.trim();
+  if (!configured) return null;
+  const bracketAddress = configured.match(/<([^<>]+)>/)?.[1]?.trim();
+  const email = bracketAddress || configured;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
 export function emailConfigured() {
-  return Boolean(process.env.BREVO_API_KEY && process.env.BREVO_FROM_EMAIL);
+  return Boolean(process.env.BREVO_API_KEY && configuredFromEmail());
 }
 
 export async function sendEmail({ to, subject, html, tags }: SendEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
-  const fromEmail = process.env.BREVO_FROM_EMAIL;
+  const fromEmail = configuredFromEmail();
   const fromName = process.env.BREVO_FROM_NAME?.trim() || "Casa Cinco";
   if (!apiKey || !fromEmail) {
     throw new Error(
-      "BREVO_API_KEY ou BREVO_FROM_EMAIL não configurados.",
+      "BREVO_API_KEY e um remetente em BREVO_FROM_EMAIL ou RESEND_FROM não estão configurados.",
     );
   }
 
   const response = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
+    signal: AbortSignal.timeout(15_000),
     headers: {
       "api-key": apiKey,
       Accept: "application/json",
@@ -146,6 +157,112 @@ export function expenseReminderEmail(params: {
       </div>
     </div>
   `;
+
+  return { subject, html };
+}
+
+export function dailyChoreReminderEmail(params: {
+  memberName: string;
+  reminderDate: string;
+  tasks: { label: string; description: string | null }[];
+  appUrl: string;
+}) {
+  const { memberName, reminderDate, tasks, appUrl } = params;
+  const firstName = escapeHtml(memberName.trim().split(/\s+/)[0] || memberName);
+  const formattedDate = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "UTC",
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(new Date(`${reminderDate}T00:00:00.000Z`));
+  const taskItems = tasks
+    .map(
+      (task) => `
+        <li style="background:#1a2132;border:1px solid rgba(255,255,255,.08);border-radius:12px;margin:0 0 9px;padding:14px 15px;">
+          <strong style="color:#f5f7ff;display:block;font-size:14px;line-height:1.45;">${escapeHtml(task.label)}</strong>
+          ${
+            task.description
+              ? `<span style="color:#aeb6c8;display:block;font-size:12px;line-height:1.5;margin-top:4px;">${escapeHtml(task.description)}</span>`
+              : ""
+          }
+        </li>`,
+    )
+    .join("");
+
+  const subject = `Hoje é seu dia de cuidar da casa, ${firstName}`;
+  const html = `
+    <!doctype html>
+    <html lang="pt-BR">
+      <body style="background:#0e1320;margin:0;padding:0;">
+        <div style="background:#0e1320;padding:32px 14px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+          <div style="max-width:520px;margin:0 auto;background:#141a29;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:26px;">
+            <p style="color:#a78bfa;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin:0 0 9px;">Casa Cinco • Rotina diária</p>
+            <h1 style="color:#ffffff;font-size:23px;letter-spacing:-.02em;margin:0 0 8px;">Bom dia, ${firstName}!</h1>
+            <p style="color:#b7bfce;font-size:14px;line-height:1.6;margin:0 0 20px;">
+              Hoje, ${escapeHtml(formattedDate)}, é o seu dia na escala da casa. Estas são as tarefas combinadas:
+            </p>
+            <ul style="list-style:none;margin:0;padding:0;">${taskItems}</ul>
+            <a href="${escapeHtml(appUrl.replace(/\/$/, ""))}/app/limpeza" style="display:inline-block;background:#7c3aed;border-radius:11px;color:#ffffff;font-size:14px;font-weight:700;margin-top:12px;padding:13px 21px;text-decoration:none;">Abrir a rotina de hoje</a>
+            <p style="color:#747e91;font-size:11px;line-height:1.5;margin:20px 0 0;">
+              Este lembrete é enviado uma única vez no início do seu dia de responsabilidade.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>`;
+
+  return { subject, html };
+}
+
+export function laundryReminderEmail(params: {
+  memberName: string;
+  reminderDate: string;
+  duties: { label: string; description: string | null }[];
+  appUrl: string;
+}) {
+  const { memberName, reminderDate, duties, appUrl } = params;
+  const firstName = escapeHtml(memberName.trim().split(/\s+/)[0] || memberName);
+  const formattedDate = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "UTC",
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(new Date(`${reminderDate}T00:00:00.000Z`));
+  const dutyItems = duties
+    .map(
+      (duty) => `
+        <li style="background:#1a2132;border:1px solid rgba(255,255,255,.08);border-radius:12px;margin:0 0 9px;padding:14px 15px;">
+          <strong style="color:#f5f7ff;display:block;font-size:14px;line-height:1.45;">${escapeHtml(duty.label)}</strong>
+          ${
+            duty.description
+              ? `<span style="color:#aeb6c8;display:block;font-size:12px;line-height:1.5;margin-top:4px;">${escapeHtml(duty.description)}</span>`
+              : ""
+          }
+        </li>`,
+    )
+    .join("");
+
+  const subject = `Hoje é seu dia de lavar roupa, ${firstName}`;
+  const html = `
+    <!doctype html>
+    <html lang="pt-BR">
+      <body style="background:#0e1320;margin:0;padding:0;">
+        <div style="background:#0e1320;padding:32px 14px;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+          <div style="max-width:520px;margin:0 auto;background:#141a29;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:26px;">
+            <p style="color:#22d3ee;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin:0 0 9px;">Casa Cinco • Lavanderia</p>
+            <h1 style="color:#ffffff;font-size:23px;letter-spacing:-.02em;margin:0 0 8px;">Bom dia, ${firstName}!</h1>
+            <p style="color:#b7bfce;font-size:14px;line-height:1.6;margin:0 0 20px;">
+              Hoje, ${escapeHtml(formattedDate)}, você tem responsabilidade na lavanderia:
+            </p>
+            <ul style="list-style:none;margin:0;padding:0;">${dutyItems}</ul>
+            <a href="${escapeHtml(appUrl.replace(/\/$/, ""))}/app/limpeza/lavanderia" style="display:inline-block;background:#0891b2;border-radius:11px;color:#ffffff;font-size:14px;font-weight:700;margin-top:12px;padding:13px 21px;text-decoration:none;">Abrir o calendário da lavanderia</a>
+            <p style="color:#747e91;font-size:11px;line-height:1.5;margin:20px 0 0;">
+              Este lembrete é enviado uma única vez no início do dia programado.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>`;
 
   return { subject, html };
 }

@@ -11,16 +11,14 @@ import { MarkPaidControl } from "@/components/mark-paid-control";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { asNumber, currency, monthLabel } from "@/lib/format";
-import { signedReceiptUrl } from "@/lib/storage";
 import {
   deleteExpense,
   deleteExpenseBoleto,
+  deleteExpensePaymentReceipt,
   deleteShareReceipt,
   setExpensePaymentAsAdmin,
   setPaymentStatus,
   setReimbursementStatus,
-  uploadExpenseBoleto,
-  uploadShareReceipt,
 } from "./actions";
 import { ExpenseForm } from "./expense-form";
 
@@ -61,7 +59,7 @@ export default async function ExpensesPage({
     supabase
       .from("expenses")
       .select(
-        "id,title,category,description,reference_month,due_date,amount,estimated,split_mode,status,recurrence,has_reimbursement,reimbursement_amount,boleto_path,boleto_name,expense_shares(id,member_id,amount,paid_amount,payment_status,paid_at,reimbursement_status,reimbursement_paid_at,receipt_path,receipt_name,member:household_members(id,name,initials,color_key))",
+        "id,title,category,description,reference_month,due_date,amount,estimated,split_mode,status,recurrence,has_reimbursement,reimbursement_amount,boleto_path,boleto_name,payment_receipt_path,payment_receipt_name,expense_shares(id,member_id,amount,paid_amount,payment_status,paid_at,reimbursement_status,reimbursement_paid_at,receipt_path,receipt_name,member:household_members(id,name,initials,color_key))",
       )
       .eq("household_id", profile.household_id)
       .eq("reference_month", `${selectedMonth}-01`)
@@ -79,15 +77,6 @@ export default async function ExpensesPage({
       (sum, share) => sum + asNumber(share.paid_amount ?? share.amount),
       0,
     );
-
-  const receiptPaths = [
-    ...(expenses ?? []).map((e) => e.boleto_path),
-    ...(expenses ?? []).flatMap((e) => (e.expense_shares ?? []).map((s) => s.receipt_path)),
-  ].filter((path): path is string => Boolean(path));
-  const signedUrlEntries = await Promise.all(
-    receiptPaths.map(async (path) => [path, await signedReceiptUrl(supabase, path)] as const),
-  );
-  const signedUrls = new Map(signedUrlEntries);
 
   return (
     <>
@@ -324,11 +313,13 @@ export default async function ExpensesPage({
                           {share.receipt_path ? (
                             <div className="attachment-row">
                               <span>📎 {share.receipt_name ?? "comprovante"}</span>
-                              {signedUrls.get(share.receipt_path) && (
-                                <a href={signedUrls.get(share.receipt_path)!} target="_blank" rel="noreferrer">
-                                  Ver
-                                </a>
-                              )}
+                              <a
+                                href={`/app/despesas/anexos/parcela/${share.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Ver
+                              </a>
                               {(profile.member_id === share.member_id || canManageExpenses) &&
                                 share.payment_status !== "paid" && (
                                 <form action={deleteShareReceipt}>
@@ -343,9 +334,7 @@ export default async function ExpensesPage({
                           ) : (
                             (profile.member_id === share.member_id || canManageExpenses || canMarkPaid) && (
                               <AttachmentUploadForm
-                                action={uploadShareReceipt}
-                                hiddenFields={{ share_id: share.id }}
-                                redirectTo={baseRoute}
+                                target={{ kind: "share_receipt", id: share.id }}
                                 label="Anexar comprovante"
                               />
                             )
@@ -387,11 +376,13 @@ export default async function ExpensesPage({
                 {expense.boleto_path ? (
                   <div className="attachment-row">
                     <span>📄 Boleto: {expense.boleto_name ?? "arquivo"}</span>
-                    {signedUrls.get(expense.boleto_path) && (
-                      <a href={signedUrls.get(expense.boleto_path)!} target="_blank" rel="noreferrer">
-                        Ver
-                      </a>
-                    )}
+                    <a
+                      href={`/app/despesas/anexos/boleto/${expense.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver
+                    </a>
                     {canManageExpenses && (
                       <form action={deleteExpenseBoleto}>
                         <input type="hidden" name="expense_id" value={expense.id} />
@@ -405,10 +396,43 @@ export default async function ExpensesPage({
                 ) : (
                   canManageExpenses && (
                     <AttachmentUploadForm
-                      action={uploadExpenseBoleto}
-                      hiddenFields={{ expense_id: expense.id }}
-                      redirectTo={baseRoute}
+                      target={{ kind: "expense_boleto", id: expense.id }}
                       label="Anexar boleto da despesa"
+                    />
+                  )
+                )}
+              </div>
+              <div style={{ padding: "0 20px 14px" }}>
+                {expense.payment_receipt_path ? (
+                  <div className="attachment-row">
+                    <span>
+                      ✅ Comprovante do pagamento total: {expense.payment_receipt_name ?? "arquivo"}
+                    </span>
+                    <a
+                      href={`/app/despesas/anexos/comprovante-geral/${expense.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Ver
+                    </a>
+                    {canManageExpenses && (
+                      <form action={deleteExpensePaymentReceipt}>
+                        <input type="hidden" name="expense_id" value={expense.id} />
+                        <input type="hidden" name="redirect_to" value={baseRoute} />
+                        <button className="button ghost small" type="submit">
+                          Remover
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                ) : (
+                  canManageExpenses && (
+                    <AttachmentUploadForm
+                      target={{
+                        kind: "expense_payment_receipt",
+                        id: expense.id,
+                      }}
+                      label="Anexar comprovante do pagamento total"
                     />
                   )
                 )}

@@ -21,18 +21,32 @@ export function LoginForm() {
     const password = String(formData.get("password") ?? "");
     const supabase = createClient();
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (signInError) {
-      setError("E-mail ou senha inválidos.");
-      setPending(false);
-      return;
-    }
+    try {
+      const { error: signInError } = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(
+            () => reject(new Error("A conexão demorou mais do que o esperado.")),
+            20_000,
+          ),
+        ),
+      ]);
+      if (signInError) {
+        setError("E-mail ou senha inválidos.");
+        return;
+      }
 
-    router.replace("/app");
-    router.refresh();
+      router.replace("/app");
+      router.refresh();
+    } catch (signInError) {
+      setError(
+        signInError instanceof Error
+          ? signInError.message
+          : "Não foi possível entrar. Verifique sua conexão e tente novamente.",
+      );
+    } finally {
+      setPending(false);
+    }
   }
 
   return (

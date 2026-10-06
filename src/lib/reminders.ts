@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addDays, daysBetween, todayIso as houseTodayIso } from "@/lib/chore-rotation";
 import { emailConfigured, expenseReminderEmail, sendEmail } from "@/lib/email";
 
 export type ReminderRunResult = {
@@ -48,12 +49,9 @@ export async function runExpenseReminders(
     };
   }
 
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = houseTodayIso();
   const daysBefore = settings?.reminder_days_before ?? 3;
-  const windowEnd = new Date(today);
-  windowEnd.setDate(windowEnd.getDate() + daysBefore);
-  const windowEndIso = windowEnd.toISOString().slice(0, 10);
+  const windowEndIso = addDays(todayIso, daysBefore);
 
   const { data: dueExpenses, error: queryError } = await supabase
     .from("expenses")
@@ -77,71 +75,102 @@ export async function runExpenseReminders(
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://casa5.vercel.app";
+  type ReminderJob = {
+    shareId: string;
+    memberName: string;
+    email: string;
+    expenseTitle: string;
+    amount: number;
+    dueDate: string;
+  };
+  const jobs: ReminderJob[] = [];
+
+  for (const expense of dueExpenses ?? []) {
+    for (const share of expense.expense_shares ?? []) {
+      if (!["pending", "late"].includes(share.payment_status)) continue;
+      const member = Array.isArray(share.member) ? share.member[0] : share.member;
+      if (!member?.email || !expense.due_date) continue;
+      jobs.push({
+        shareId: share.id,
+        memberName: member.name,
+        email: member.email,
+        expenseTitle: expense.title,
+        amount: Number(share.amount),
+        dueDate: expense.due_date,
+      });
+    }
+  }
+
   let sent = 0;
-  let candidates = 0;
+  const candidates = jobs.length;
   let skippedAlreadySent = 0;
   const failures: { to: string; error: string }[] = [];
 
-  for (const expense of dueExpenses ?? []) {
-    const shares = expense.expense_shares ?? [];
-    for (const share of shares) {
-      if (!["pending", "late"].includes(share.payment_status)) continue;
-      const member = Array.isArray(share.member) ? share.member[0] : share.member;
-      if (!member?.email) continue;
-      candidates += 1;
-
-      const { error: logError } = await supabase.from("expense_reminder_log").insert({
-        expense_share_id: share.id,
+  async function processJob(job: ReminderJob) {
+    const { error: logError } = await supabase
+      .from("expense_reminder_log")
+      .insert({
+        expense_share_id: job.shareId,
         reminder_date: todayIso,
       });
-      // unique(expense_share_id, reminder_date) impede reenviar no mesmo dia.
-      if (logError) {
-        if (logError.code === "23505") {
-          skippedAlreadySent += 1;
-        } else {
-          failures.push({
-            to: member.email,
-            error: `Não foi possível registrar o envio: ${logError.message}`,
-          });
-        }
-        continue;
-      }
-
-      const dueDate = expense.due_date as string;
-      const daysLeft = Math.round(
-        (new Date(`${dueDate}T00:00:00`).getTime() - today.getTime()) / 86_400_000,
-      );
-      const { subject, html } = expenseReminderEmail({
-        memberName: member.name,
-        expenseTitle: expense.title,
-        amount: Number(share.amount),
-        dueDate,
-        daysLeft,
-        appUrl,
-      });
-      try {
-        await sendEmail({
-          to: member.email,
-          subject,
-          html,
-          tags: ["casa5-lembrete-vencimento"],
-        });
-        sent += 1;
-      } catch (error) {
+    // unique(expense_share_id, reminder_date) impede reenviar no mesmo dia.
+    if (logError) {
+      if (logError.code === "23505") {
+        skippedAlreadySent += 1;
+      } else {
         failures.push({
-          to: member.email,
-          error: error instanceof Error ? error.message : "Erro desconhecido",
+          to: job.email,
+          error: `Não foi possível registrar o envio: ${logError.message}`,
         });
-        // Libera o registro de log para permitir nova tentativa depois,
-        // já que o e-mail não foi realmente entregue.
-        await supabase
-          .from("expense_reminder_log")
-          .delete()
-          .eq("expense_share_id", share.id)
-          .eq("reminder_date", todayIso);
       }
+      return;
+    }
+
+    const daysLeft = daysBetween(todayIso, job.dueDate);
+    const { subject, html } = expenseReminderEmail({
+      memberName: job.memberName,
+      expenseTitle: job.expenseTitle,
+      amount: job.amount,
+      dueDate: job.dueDate,
+      daysLeft,
+      appUrl,
+    });
+    try {
+      await sendEmail({
+        to: job.email,
+        subject,
+        html,
+        tags: ["casa5-lembrete-vencimento"],
+      });
+      sent += 1;
+    } catch (error) {
+      failures.push({
+        to: job.email,
+        error: error instanceof Error ? error.message : "Erro desconhecido",
+      });
+      // Libera o registro de log para permitir nova tentativa depois,
+      // já que o e-mail não foi realmente entregue.
+      await supabase
+        .from("expense_reminder_log")
+        .delete()
+        .eq("expense_share_id", job.shareId)
+        .eq("reminder_date", todayIso);
     }
   }
+
+  // Cinco moradores podem ser avisados em paralelo sem serializar um timeout
+  // de rede por destinatário. O limite evita uma rajada desnecessária na API.
+  let nextJob = 0;
+  async function worker() {
+    while (nextJob < jobs.length) {
+      const job = jobs[nextJob];
+      nextJob += 1;
+      await processJob(job);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(5, jobs.length) }, () => worker()),
+  );
 
   let message = `O Brevo aceitou ${sent} de ${candidates} lembrete(s) para processamento. Isso ainda não confirma a entrega; acompanhe em Brevo > Transacional > Logs.`;
   if (skippedAlreadySent > 0) {

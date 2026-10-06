@@ -1,19 +1,14 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { CartIcon, ChecklistIcon, PlusIcon } from "@/components/icons";
-import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { currency } from "@/lib/format";
-import { signedReceiptUrl } from "@/lib/storage";
 import {
-  addShoppingItem,
-  createTask,
-  deleteTask,
-  toggleTaskAssignee,
-} from "./actions";
-import {
+  ShoppingItemCreateForm,
   ShoppingListManager,
   ShoppingPurchaseMutationForm,
 } from "./shopping-purchase-form";
+import { TaskCreateForm, TaskMutationForm } from "./task-forms";
 
 const purchaseScopeLabels: Record<string, string> = {
   household: "Casa toda",
@@ -21,19 +16,40 @@ const purchaseScopeLabels: Record<string, string> = {
   individual: "Individual",
 };
 
+const purchaseSplitLabels: Record<string, string> = {
+  equal: "Divisão igual",
+  custom: "Valores personalizados",
+};
+
+const PURCHASES_PER_PAGE = 10;
+
 export default async function OrganizacaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ nova?: string; success?: string }>;
+  searchParams: Promise<{ nova?: string; success?: string; compras_page?: string }>;
 }) {
   const params = await searchParams;
+  const parsedPurchasePage = Number(params.compras_page ?? "1");
+  const purchasePage = Number.isSafeInteger(parsedPurchasePage) &&
+    parsedPurchasePage > 0 &&
+    parsedPurchasePage <= 10_000
+    ? parsedPurchasePage
+    : 1;
+  const purchaseFrom = (purchasePage - 1) * PURCHASES_PER_PAGE;
+  const purchaseTo = purchaseFrom + PURCHASES_PER_PAGE - 1;
   const baseRoute = "/app/organizacao";
   const { profile, supabase } = await requireActiveProfile();
   const canManageTasks = can(profile, "manage_tasks");
   const canManageShopping = profile.role === "admin";
 
-  const [{ data: members }, { data: tasks }, { data: shoppingItems }, { data: purchases }] =
-    await Promise.all([
+  const [
+    { data: members },
+    { data: tasks },
+    { data: shoppingItems },
+    { data: purchases, count: purchaseCount },
+    { data: legacyBought },
+    { data: purchaseTotals },
+  ] = await Promise.all([
       supabase
         .from("household_members")
         .select("id,name,initials,color_key,pix_key")
@@ -51,17 +67,31 @@ export default async function OrganizacaoPage({
       supabase
         .from("shopping_items")
         .select(
-          "id,name,note,category,status,quantity_planned,quantity_bought,unit_price,purchase_id,checked_at,bought_at,created_at",
+          "id,name,note,category,status,quantity_planned,created_at",
         )
         .eq("household_id", profile.household_id)
+        .in("status", ["list", "checked"])
         .order("created_at", { ascending: false }),
       supabase
         .from("shopping_purchases")
         .select(
-          "id,purchase_scope,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,category,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
+          "id,purchase_scope,split_mode,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,category,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
+          { count: "exact" },
         )
         .eq("household_id", profile.household_id)
+        .order("bought_at", { ascending: false })
+        .range(purchaseFrom, purchaseTo),
+      supabase
+        .from("shopping_items")
+        .select("id,name,quantity_bought,unit_price")
+        .eq("household_id", profile.household_id)
+        .eq("status", "bought")
+        .is("purchase_id", null)
         .order("bought_at", { ascending: false }),
+      supabase
+        .from("shopping_purchases")
+        .select("total_amount")
+        .eq("household_id", profile.household_id),
     ]);
 
   const openTasks = (tasks ?? []).filter((t) =>
@@ -73,22 +103,25 @@ export default async function OrganizacaoPage({
     (t) => (t.task_assignees ?? []).length > 0 && (t.task_assignees ?? []).every((a) => a.done),
   );
 
-  const purchasesWithReceipts = await Promise.all(
-    (purchases ?? []).map(async (purchase) => ({
-      ...purchase,
-      shopping_purchase_shares: await Promise.all(
-        (purchase.shopping_purchase_shares ?? []).map(async (share) => ({
-          ...share,
-          receipt_url: await signedReceiptUrl(supabase, share.receipt_path),
-        })),
-      ),
-    })),
+  const openShoppingItems = shoppingItems ?? [];
+  const purchasesOnPage = purchases ?? [];
+  const legacyPurchases = purchasePage === 1 ? (legacyBought ?? []) : [];
+  const totalPurchasePages = Math.max(
+    1,
+    Math.ceil((purchaseCount ?? 0) / PURCHASES_PER_PAGE),
   );
-
-  const openShoppingItems = (shoppingItems ?? []).filter((item) => ["list", "checked"].includes(item.status));
-  const legacyBought = (shoppingItems ?? []).filter((item) => item.status === "bought" && !item.purchase_id);
-  const totalSpent = purchasesWithReceipts.reduce((sum, purchase) => sum + Number(purchase.total_amount), 0)
-    + legacyBought.reduce((sum, item) => sum + Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0), 0);
+  if (purchasePage > totalPurchasePages) {
+    redirect(
+      `${baseRoute}?compras_page=${totalPurchasePages}#historico-compras`,
+    );
+  }
+  const totalSpent = (purchaseTotals ?? []).reduce(
+    (sum, purchase) => sum + Number(purchase.total_amount),
+    0,
+  ) + (legacyBought ?? []).reduce(
+    (sum, item) => sum + Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0),
+    0,
+  );
 
   return (
     <>
@@ -122,46 +155,11 @@ export default async function OrganizacaoPage({
 
         {params.nova === "1" && canManageTasks && (
           <div style={{ padding: "0 20px 20px" }}>
-            <form action={createTask} className="stack-form">
-              <input type="hidden" name="scope" value="geral" />
-              <input type="hidden" name="redirect_to" value={baseRoute} />
-              <div className="form-grid cols-3">
-                <label className="field span-2">
-                  Título
-                  <input name="title" required placeholder="Ex.: Resolver problema da internet" />
-                </label>
-                <label className="field">
-                  Prazo
-                  <input name="due_date" type="date" />
-                </label>
-                <label className="field span-3">
-                  Descrição (opcional)
-                  <textarea name="description" placeholder="Detalhes úteis" />
-                </label>
-              </div>
-              <div className="form-section">
-                <h4>Quem é responsável?</h4>
-                <div className="member-check-grid">
-                  {(members ?? []).map((member) => (
-                    <label className="member-check" key={member.id}>
-                      <input type="checkbox" name="member_ids" value={member.id} />
-                      <span>{member.name}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="note">
-                  Marque todos os moradores se a tarefa é individual para cada
-                  um (ex.: &quot;todos devem trocar a cama&quot;), ou apenas
-                  um se for responsabilidade de uma única pessoa.
-                </p>
-              </div>
-              <div className="form-actions">
-                <SubmitButton pendingLabel="Criando...">Criar tarefa</SubmitButton>
-                <Link className="button ghost" href={baseRoute}>
-                  Cancelar
-                </Link>
-              </div>
-            </form>
+            <TaskCreateForm
+              members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
+              redirectTo={baseRoute}
+              cancelHref={baseRoute}
+            />
           </div>
         )}
 
@@ -185,18 +183,16 @@ export default async function OrganizacaoPage({
                 {(task.task_assignees ?? []).map((a) => {
                   const member = Array.isArray(a.member) ? a.member[0] : a.member;
                   return (
-                    <form action={toggleTaskAssignee} key={a.id}>
-                      <input type="hidden" name="assignee_id" value={a.id} />
-                      <input type="hidden" name="done" value={a.done ? "0" : "1"} />
-                      <input type="hidden" name="redirect_to" value={baseRoute} />
-                      <button
-                        type="submit"
-                        className={`button small ${a.done ? "secondary" : "ghost"}`}
-                        title={a.done ? "Marcar como pendente" : "Marcar como concluída"}
-                      >
-                        {a.done ? "✓" : ""} {member?.name?.split(" ")[0] ?? "Morador"}
-                      </button>
-                    </form>
+                    <TaskMutationForm
+                      key={a.id}
+                      mode="toggle"
+                      assigneeId={a.id}
+                      done={!a.done}
+                      redirectTo={baseRoute}
+                      className={`button small ${a.done ? "secondary" : "ghost"}`}
+                      title={a.done ? "Marcar como pendente" : "Marcar como concluída"}
+                      label={`${a.done ? "✓ " : ""}${member?.name?.split(" ")[0] ?? "Morador"}`}
+                    />
                   );
                 })}
                 {(task.task_assignees ?? []).length === 0 && (
@@ -204,11 +200,13 @@ export default async function OrganizacaoPage({
                 )}
               </div>
               {canManageTasks && (
-                <form action={deleteTask}>
-                  <input type="hidden" name="task_id" value={task.id} />
-                  <input type="hidden" name="redirect_to" value={baseRoute} />
-                  <button className="button danger small" type="submit">Excluir</button>
-                </form>
+                <TaskMutationForm
+                  mode="delete"
+                  taskId={task.id}
+                  redirectTo={baseRoute}
+                  className="button danger small"
+                  label="Excluir"
+                />
               )}
             </div>
           ))}
@@ -251,30 +249,7 @@ export default async function OrganizacaoPage({
 
         {canManageShopping && (
           <div style={{ padding: "0 20px 20px" }}>
-            <form action={addShoppingItem} className="form-grid cols-3">
-              <input type="hidden" name="redirect_to" value={baseRoute} />
-              <label className="field">
-                Item
-                <input name="name" required placeholder="Ex.: Arroz" />
-              </label>
-              <label className="field">
-                Quantidade planejada
-                <input name="quantity_planned" inputMode="decimal" placeholder="Ex.: 2" />
-              </label>
-              <label className="field">
-                Categoria
-                <input name="category" placeholder="Ex.: Mercearia" />
-              </label>
-              <label className="field span-3">
-                Observação
-                <input name="note" placeholder="Opcional" />
-              </label>
-              <div className="form-actions span-3">
-                <SubmitButton className="button secondary" pendingLabel="Adicionando...">
-                  <PlusIcon /> Adicionar à lista
-                </SubmitButton>
-              </div>
-            </form>
+            <ShoppingItemCreateForm redirectTo={baseRoute} />
           </div>
         )}
 
@@ -298,16 +273,16 @@ export default async function OrganizacaoPage({
           redirectTo={baseRoute}
         />
 
-        <div style={{ padding: "0 20px 8px" }}>
+        <div id="historico-compras" style={{ padding: "0 20px 8px" }}>
           <h4 style={{ margin: "8px 0" }}>
-            Compras registradas ({purchasesWithReceipts.length + legacyBought.length})
+            Compras registradas ({(purchaseCount ?? 0) + (legacyBought?.length ?? 0)})
           </h4>
         </div>
         <div className="purchase-list">
-          {purchasesWithReceipts.length === 0 && legacyBought.length === 0 && (
+          {purchasesOnPage.length === 0 && legacyPurchases.length === 0 && (
             <div className="empty">Nenhuma compra registrada ainda.</div>
           )}
-          {purchasesWithReceipts.map((purchase) => {
+          {purchasesOnPage.map((purchase) => {
             const paidBy = Array.isArray(purchase.paid_by) ? purchase.paid_by[0] : purchase.paid_by;
             const shares = purchase.shopping_purchase_shares ?? [];
             const purchaseItems = purchase.items ?? [];
@@ -321,7 +296,8 @@ export default async function OrganizacaoPage({
                     </small>
                   </div>
                   <span className="status-pill violet">
-                    {purchaseScopeLabels[purchase.purchase_scope] ?? "Sem divisão"}
+                    {purchaseScopeLabels[purchase.purchase_scope] ?? "Sem divisão"} ·{" "}
+                    {purchaseSplitLabels[purchase.split_mode] ?? "Divisão igual"}
                   </span>
                   <div className="item-value">
                     <strong>{currency.format(Number(purchase.total_amount))}</strong>
@@ -351,7 +327,8 @@ export default async function OrganizacaoPage({
                         <strong>
                           {item.quantity_bought ?? "—"} × {currency.format(Number(item.unit_price ?? 0))}
                         </strong>
-                        {canManageShopping && (
+                        {canManageShopping &&
+                          (purchase.split_mode !== "custom" || purchaseItems.length === 1) && (
                           <ShoppingPurchaseMutationForm
                             mode="remove-item"
                             purchaseId={purchase.id}
@@ -400,13 +377,15 @@ export default async function OrganizacaoPage({
 
                             {hasReceipt && (
                               <div className="purchase-proof-actions">
-                                {share.receipt_url && (
-                                  <div className="attachment-row">
-                                    <a href={share.receipt_url} target="_blank" rel="noreferrer">
-                                      Ver {share.receipt_name ?? "comprovante"}
-                                    </a>
-                                  </div>
-                                )}
+                                <div className="attachment-row">
+                                  <a
+                                    href={`/app/organizacao/comprovantes/${share.id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Ver {share.receipt_name ?? "comprovante"}
+                                  </a>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -419,7 +398,7 @@ export default async function OrganizacaoPage({
             );
           })}
 
-          {legacyBought.map((item) => (
+          {legacyPurchases.map((item) => (
             <details className="purchase-card purchase-accordion" key={item.id}>
               <summary className="purchase-summary">
                 <div className="item-title">
@@ -442,6 +421,42 @@ export default async function OrganizacaoPage({
             </details>
           ))}
         </div>
+
+        {totalPurchasePages > 1 && (
+          <nav
+            className="form-actions"
+            aria-label="Paginação das compras"
+            style={{ justifyContent: "center", padding: "16px 20px 20px" }}
+          >
+            {purchasePage > 1 ? (
+              <Link
+                className="button ghost small"
+                href={`${baseRoute}?compras_page=${purchasePage - 1}#historico-compras`}
+              >
+                Anterior
+              </Link>
+            ) : (
+              <button className="button ghost small" type="button" disabled>
+                Anterior
+              </button>
+            )}
+            <span className="muted-text">
+              Página {Math.min(purchasePage, totalPurchasePages)} de {totalPurchasePages}
+            </span>
+            {purchasePage < totalPurchasePages ? (
+              <Link
+                className="button ghost small"
+                href={`${baseRoute}?compras_page=${purchasePage + 1}#historico-compras`}
+              >
+                Próxima
+              </Link>
+            ) : (
+              <button className="button ghost small" type="button" disabled>
+                Próxima
+              </button>
+            )}
+          </nav>
+        )}
       </section>
     </>
   );

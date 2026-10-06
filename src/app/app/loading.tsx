@@ -9,11 +9,11 @@ export default function AppLoading() {
           />
           <div
             className="skeleton skeleton-line"
-            style={{ width: 320, height: 30, marginTop: 12 }}
+            style={{ width: 320, maxWidth: "100%", height: 30, marginTop: 12 }}
           />
           <div
             className="skeleton skeleton-line"
-            style={{ width: 420, height: 14, marginTop: 10 }}
+            style={{ width: 420, maxWidth: "100%", height: 14, marginTop: 10 }}
           />
         </div>
       </div>

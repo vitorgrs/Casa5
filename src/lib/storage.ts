@@ -10,8 +10,11 @@ export const ALLOWED_RECEIPT_TYPES = [
   "image/heic",
 ];
 
-export function validateReceiptFile(file: File) {
-  if (file.size === 0) return "Selecione um arquivo.";
+export function validateReceiptMetadata(file: {
+  size: number;
+  type: string;
+}) {
+  if (file.size <= 0) return "Selecione um arquivo.";
   if (file.size > MAX_RECEIPT_SIZE) return "O arquivo precisa ter até 8MB.";
   if (file.type && !ALLOWED_RECEIPT_TYPES.includes(file.type)) {
     return "Envie um PDF ou uma foto (JPG, PNG, WEBP ou HEIC).";
@@ -19,29 +22,29 @@ export function validateReceiptFile(file: File) {
   return null;
 }
 
-function slugifyFileName(name: string) {
+export function validateReceiptFile(file: File) {
+  return validateReceiptMetadata(file);
+}
+
+export function validateStoredReceiptMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  const size = Number(metadata?.size ?? metadata?.contentLength);
+  if (!Number.isFinite(size) || size <= 0) {
+    return "Não foi possível validar o tamanho do arquivo enviado.";
+  }
+  const type = String(
+    metadata?.mimetype ?? metadata?.contentType ?? metadata?.content_type ?? "",
+  );
+  return validateReceiptMetadata({ size, type });
+}
+
+export function slugifyReceiptFileName(name: string) {
   return name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9.\-_]/g, "-")
     .slice(-80);
-}
-
-export async function uploadToReceiptBucket(
-  supabase: SupabaseClient,
-  householdId: string,
-  folder: string,
-  file: File,
-) {
-  const error = validateReceiptFile(file);
-  if (error) throw new Error(error);
-
-  const path = `${householdId}/${folder}/${Date.now()}-${slugifyFileName(file.name || "arquivo")}`;
-  const { error: uploadError } = await supabase.storage
-    .from(RECEIPT_BUCKET)
-    .upload(path, file, { contentType: file.type || undefined, upsert: false });
-  if (uploadError) throw new Error(uploadError.message);
-  return { path, name: file.name || "arquivo" };
 }
 
 export async function deleteFromReceiptBucket(supabase: SupabaseClient, path: string) {

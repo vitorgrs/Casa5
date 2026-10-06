@@ -10,6 +10,7 @@ Aplicação privada para gerenciar as despesas, pagamentos e rotinas de limpeza 
 - Despesas mensais, avulsas e recorrentes.
 - Divisão igual com correção automática dos centavos.
 - Divisão personalizada por morador, com validação da soma.
+- Lista de compras com rateio igual ou valores personalizados e histórico paginado.
 - Pagamento individual: pendente, pago, atrasado ou dispensado.
 - Alertas visuais de vencimento próximo e atraso.
 - Agosto/2026 pré-configurado com aluguel de **R$ 5.915,54**, vencimento em **07/08/2026**, dividido entre os cinco.
@@ -18,6 +19,9 @@ Aplicação privada para gerenciar as despesas, pagamentos e rotinas de limpeza 
 - Integração server-side com os relatórios oficiais de saldo disponível do Mercado Pago.
 - Registro manual de saldo como contingência.
 - Escala diária rotativa entre todos os moradores, exibida em calendário.
+- Lembretes por e-mail às 06:00 para a rotina da casa e a lavanderia.
+- Calendário de lavanderia com grupos configuráveis, intervalo, secagem e lavagens coletivas.
+- Canal de reclamações anônimas com protocolo e acompanhamento privado.
 - Tarefas padrão diárias, tarefas extras e trocas de dia com aprovação administrativa.
 - Automação diária gratuita na Vercel para atrasos, recorrências e Mercado Pago.
 - Banco protegido com Row Level Security (RLS).
@@ -36,7 +40,11 @@ Aplicação privada para gerenciar as despesas, pagamentos e rotinas de limpeza 
 
 1. Crie um projeto em `supabase.com`.
 2. Abra **SQL Editor**.
-3. Copie e execute todo o conteúdo de:
+3. Copie e execute as migrations em ordem numérica. Em um banco novo, rode
+   `001_initial.sql` até `029_laundry_responsibles_and_reminders.sql`. Em um banco já
+   existente, aplique somente as migrations ainda pendentes, sem pular números.
+
+O schema inicial começa em:
 
 ```text
 supabase/migrations/001_initial.sql
@@ -73,6 +81,9 @@ SUPABASE_SERVICE_ROLE_KEY=sb_secret_xxxxxxxxx
 MERCADO_PAGO_ACCESS_TOKEN=APP_USR-xxxxxxxxx
 CRON_SECRET=uma-chave-grande-e-aleatoria
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+BREVO_API_KEY=xkeysib-xxxxxxxxx
+BREVO_FROM_EMAIL=remetente-confirmado@exemplo.com
+BREVO_FROM_NAME=Casa Cinco
 ```
 
 Nunca envie `.env.local` ao GitHub. A chave secreta do Supabase e o token do Mercado Pago são usados apenas no servidor.
@@ -147,21 +158,25 @@ Em **Authentication → URL Configuration**:
 
 ## 8. Automação diária
 
-O arquivo `vercel.json` agenda:
+O arquivo `vercel.json` agenda duas rotinas (os horários da Vercel são em UTC):
 
 ```text
-/api/cron/daily
+/api/cron/morning  09:00 UTC (06:00 em São Paulo)
+/api/cron/daily    10:00 UTC (07:00 em São Paulo)
 ```
 
-para `11:00 UTC`, equivalente a `08:00` no horário de Fortaleza/Rio de Janeiro.
-
-A rotina:
+A rotina das 06:00 envia os lembretes das tarefas da casa, das pessoas escaladas
+para lavar roupa e dos responsáveis por lavagens coletivas do dia.
+A rotina das 07:00:
 
 - marca parcelas pendentes vencidas como atrasadas;
 - cria despesas recorrentes do mês atual ou seguinte;
 - copia a divisão do último mês da série;
 - tenta importar o relatório mais recente do Mercado Pago;
-- solicita um relatório novo para a próxima execução;
+- solicita outro relatório somente quando a cobertura do último tiver 24 horas
+  ou mais;
+- tenta novamente o lembrete da casa somente se o envio das 06:00 não tiver
+  sido concluído;
 - grava um evento técnico no banco.
 
 A rota exige o cabeçalho `Authorization: Bearer <CRON_SECRET>`.
@@ -186,6 +201,7 @@ src/app/app/despesas/        despesas, divisões e pagamentos
 src/app/app/limpeza/         calendário, escala diária, tarefas e trocas
 src/app/app/moradores/       e-mails e liberação de acesso
 src/app/app/configuracoes/   saldo e Mercado Pago
+src/app/api/cron/morning/    lembrete diário da casa às 06:00
 src/app/api/cron/daily/      automação diária
 src/lib/supabase/            clientes Supabase
 supabase/migrations/         banco, RLS e dados iniciais
@@ -224,8 +240,8 @@ leitura do saldo do Mercado Pago).
 ### 3. Minha página (`/app/eu`)
 
 Painel pessoal com: despesas por mês (destacando o que ainda não foi pago),
-reembolsos pendentes, tarefas do calendário do Casa em dia designadas à
-pessoa e pendências gerais da Organização.
+valor líquido que a pessoa tem a receber e quem deve pagá-la, tarefas do
+calendário do Casa em dia e pendências gerais da Organização.
 
 ### 4. Casa em dia — calendário (`/app/limpeza`)
 
@@ -336,8 +352,8 @@ Ela cria:
   assim. Se já existe comprovante, marca direto.
 - Cada despesa pode ter um boleto anexado (quem tem permissão de gerenciar
   despesas), ficando salvo e visível para todos os moradores da casa.
-- Os arquivos são acessados por link temporário (30 minutos), gerado a cada
-  carregamento da página — não há link público permanente.
+- Os arquivos são acessados por link temporário (30 minutos), gerado somente
+  quando o usuário clica para abrir — não há link público permanente.
 
 ### 3. Feedback de carregamento e "Cancelar"
 
@@ -609,3 +625,67 @@ página → Administração dos acertos**, também pode dar baixa total ou parci
 saldo líquido de um acerto sem arquivo. Essas baixas ficam identificadas no
 histórico como registros administrativos. Para os demais moradores, o
 comprovante continua obrigatório antes da confirmação do pagamento.
+
+## Atualização: estabilidade, rateios, anexos e novas rotinas
+
+Antes de publicar esta versão, aplique em ordem:
+
+```text
+supabase/migrations/018_shopping_custom_splits.sql
+supabase/migrations/019_expense_general_receipt.sql
+supabase/migrations/020_anonymous_complaints.sql
+supabase/migrations/021_laundry_calendar.sql
+supabase/migrations/022_daily_chore_email_reminders.sql
+supabase/migrations/023_atomic_expense_mutations.sql
+supabase/migrations/024_secure_receipt_storage.sql
+supabase/migrations/025_shopping_reset_integrity.sql
+supabase/migrations/026_atomic_recurring_expenses.sql
+supabase/migrations/027_secure_expense_share_updates.sql
+supabase/migrations/028_versioned_laundry_rotation.sql
+supabase/migrations/029_laundry_responsibles_and_reminders.sql
+```
+
+Em produção, aplique essas migrations e publique o código novo na mesma janela
+de manutenção. As migrations `024` e `027` removem acessos legados de propósito;
+por isso, a versão anterior não deve continuar atendendo gravações enquanto o
+banco já estiver atualizado.
+
+Principais mudanças:
+
+- Cadastros e edições principais exibem o resultado no próprio formulário,
+  sem depender de um recarregamento manual.
+- Criar, editar ou marcar outro item não apaga a seleção atual da lista de
+  compras; o lançamento aceita rateio igual ou valores personalizados.
+- O histórico de compras é paginado e URLs privadas de comprovantes são
+  geradas somente no clique. Uploads de até 8 MB vão direto ao Storage e não
+  atravessam o corpo da Server Action.
+- Cadastro e edição de despesas e rateios são uma única transação no banco;
+  falhas não deixam despesa ou parcelas pela metade e o histórico pago não
+  pode ser removido acidentalmente.
+- Despesas aceitam boleto e comprovante geral do pagamento total, além dos
+  comprovantes individuais existentes.
+- A sincronização do Mercado Pago mede a idade pela cobertura real do último
+  relatório. Com 24 horas ou mais, solicita uma nova geração; requisições
+  recentes em processamento não são duplicadas.
+- **Minha página** mostra quanto o morador ainda tem a receber e de quem.
+- **Reclamações** permite enviar anonimamente e acompanhar o próprio protocolo,
+  sempre com o status “Sendo analisada pelo administrador”.
+- **Casa em dia → Lavanderia** traz o rodízio Vitor → Patrick → Belo → William
+  → Sávio, marco de Belo em 05/10/2026, Sávio em 08/10/2026, intervalo
+  configurável e agenda de lavagens coletivas. O administrador define quantas
+  pessoas lavam em cada data e se o último grupo pode ser menor; cada alteração
+  vale somente de hoje em diante e as versões anteriores ficam preservadas.
+  Lavagens de roupa de cama exigem um responsável, que recebe o lembrete do dia.
+- O cron das 06:00 envia ao responsável do dia as três tarefas atuais: lixo da
+  cozinha, verificação do lixo dos banheiros usados e, após as 19h, guardar as
+  louças do seca-louças (secando-as se necessário). No mesmo horário, cada
+  pessoa escalada na lavanderia recebe seu próprio lembrete; responsabilidades
+  por roupa de cama e outras lavagens coletivas são incluídas no mesmo e-mail.
+- Comprovantes ficam em bucket privado, com acesso autorizado pela aplicação,
+  limite de 8 MB e validação do tipo real do arquivo no Storage.
+- A redefinição da lista de compras recusa apagar uma compra que já tenha
+  comprovante, pagamento ou qualquer valor liquidado.
+- A criação mensal de despesas recorrentes também é atômica: despesa, rateios e
+  eventual tarefa de reembolso são gravados juntos ou nenhum deles é gravado.
+- Alterações financeiras nas parcelas passam por funções validadas; a permissão
+  de marcar pagamentos não permite mudar morador, valor ou comprovante via API.

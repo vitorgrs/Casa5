@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
+import { todayIso } from "@/lib/chore-rotation";
+import { runDailyChoreReminder } from "@/lib/chore-reminders";
+import { runDailyLaundryReminder } from "@/lib/laundry-reminders";
 import { createServiceClient } from "@/lib/supabase/service";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
 import { runExpenseReminders } from "@/lib/reminders";
 
-export const maxDuration = 60;
+// O plano Hobby com Fluid Compute aceita até 300 s. A folga evita interromper
+// a sincronização externa e os e-mails quando as duas APIs estão mais lentas.
+export const maxDuration = 300;
 
 function firstDay(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function dueDateForMonth(dueDate: string | null, targetMonth: string) {
-  if (!dueDate) return null;
-  const day = Number(dueDate.slice(8, 10));
-  const [year, month] = targetMonth.split("-").map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
-  return `${targetMonth}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
 }
 
 export async function GET(request: Request) {
@@ -24,13 +21,16 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServiceClient();
-  const today = new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  const localTodayIso = todayIso();
+  const today = new Date(`${localTodayIso}T12:00:00.000Z`);
   const householdId = "11111111-1111-1111-1111-111111111111";
   const result = {
     lateShares: 0,
     recurringCreated: 0,
+    recurringFailed: 0,
     mercadoPago: "não executado",
+    choreReminder: "não executado",
+    laundryReminder: "não executado",
     remindersSent: 0,
     reminders: "não executado",
   };
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     .from("expenses")
     .select("id")
     .eq("household_id", householdId)
-    .lt("due_date", todayIso)
+    .lt("due_date", localTodayIso)
     .in("status", ["planned", "open"]);
 
   const overdueIds = (overdueExpenses ?? []).map((expense) => expense.id);
@@ -57,9 +57,8 @@ export async function GET(request: Request) {
   const targetMonth = firstDay(target);
   const { data: recurring } = await supabase
     .from("expenses")
-    .select("id,title,category,description,reference_month,due_date,amount,estimated,split_mode,recurrence,series_id,expense_shares(member_id,amount)")
+    .select("reference_month,recurrence,series_id")
     .eq("household_id", householdId)
-    .eq("recurrence", "monthly")
     .not("series_id", "is", null)
     .order("reference_month", { ascending: false });
 
@@ -70,54 +69,31 @@ export async function GET(request: Request) {
   }
 
   for (const expense of latestBySeries.values()) {
-    if (!expense || expense.reference_month >= targetMonth) continue;
-    const { data: existing } = await supabase
-      .from("expenses")
-      .select("id")
-      .eq("household_id", householdId)
-      .eq("series_id", expense.series_id)
-      .eq("reference_month", targetMonth)
-      .maybeSingle();
-    if (existing) continue;
-
-    const { data: created, error } = await supabase
-      .from("expenses")
-      .insert({
-        household_id: householdId,
-        title: expense.title,
-        category: expense.category,
-        description: expense.description,
-        reference_month: targetMonth,
-        due_date: dueDateForMonth(expense.due_date, targetMonth.slice(0, 7)),
-        amount: expense.amount,
-        estimated: expense.estimated,
-        split_mode: expense.split_mode,
-        status: expense.amount === null ? "planned" : "open",
-        recurrence: "monthly",
-        series_id: expense.series_id,
-        source_expense_id: expense.id
-      })
-      .select("id")
-      .single();
-
-    if (!error && created) {
-      const shares = expense.expense_shares ?? [];
-      if (shares.length) {
-        await supabase.from("expense_shares").insert(shares.map((share) => ({
-          expense_id: created.id,
-          member_id: share.member_id,
-          amount: share.amount,
-          payment_status: "pending"
-        })));
-      }
+    if (
+      !expense ||
+      expense.recurrence !== "monthly" ||
+      expense.reference_month >= targetMonth
+    ) continue;
+    const { data: createdExpenseId, error } = await supabase.rpc(
+      "create_recurring_expense_month",
+      {
+        target_household_id: householdId,
+        target_series_id: expense.series_id,
+        target_reference_month: targetMonth,
+      },
+    );
+    if (error) {
+      result.recurringFailed += 1;
+    } else if (createdExpenseId) {
       result.recurringCreated += 1;
     }
   }
 
-  if (process.env.MERCADO_PAGO_ACCESS_TOKEN) {
+  const mercadoPagoRun = (async () => {
+    if (!process.env.MERCADO_PAGO_ACCESS_TOKEN) return "não configurado";
     try {
       const mp = await syncLatestMercadoPagoReport(supabase, householdId, null);
-      result.mercadoPago = mp.imported
+      return mp.imported
         ? "relatório importado"
         : mp.requested
           ? "nova geração solicitada"
@@ -127,11 +103,26 @@ export async function GET(request: Request) {
               ? "nenhum relatório novo"
               : mp.requestDetail ?? "nenhum arquivo pronto";
     } catch (error) {
-      result.mercadoPago = error instanceof Error ? `erro: ${error.message}` : "erro desconhecido";
+      return error instanceof Error ? `erro: ${error.message}` : "erro desconhecido";
     }
-  }
+  })();
 
-  const reminderResult = await runExpenseReminders(supabase, householdId);
+  const [
+    mercadoPagoResult,
+    reminderResult,
+    choreReminderResult,
+    laundryReminderResult,
+  ] = await Promise.all([
+    mercadoPagoRun,
+    runExpenseReminders(supabase, householdId),
+    // Segunda chance: o log único impede duplicidade se o envio das 06:00
+    // funcionou e permite tentar de novo se a chamada ao provedor falhou.
+    runDailyChoreReminder(supabase, householdId),
+    runDailyLaundryReminder(supabase, householdId),
+  ]);
+  result.mercadoPago = mercadoPagoResult;
+  result.choreReminder = choreReminderResult.message;
+  result.laundryReminder = laundryReminderResult.message;
   result.remindersSent = reminderResult.sent;
   result.reminders = reminderResult.message;
 
@@ -143,5 +134,5 @@ export async function GET(request: Request) {
     metadata: result
   });
 
-  return NextResponse.json({ ok: true, date: todayIso, ...result });
+  return NextResponse.json({ ok: true, date: localTodayIso, ...result });
 }

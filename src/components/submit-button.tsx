@@ -18,7 +18,13 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 export function SubmitButton({ children, pendingLabel, className = "button primary", disabled, ...props }: Props) {
   const { pending } = useFormStatus();
   return (
-    <button {...props} type="submit" className={className} disabled={pending || disabled}>
+    <button
+      {...props}
+      type="submit"
+      className={className}
+      disabled={pending || disabled}
+      aria-busy={pending || undefined}
+    >
       {pending ? (
         <>
           <span className="spinner" aria-hidden="true" />

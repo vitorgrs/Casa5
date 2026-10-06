@@ -1,66 +1,133 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
-import { SubmitButton } from "@/components/submit-button";
-
-type Action = (formData: FormData) => void | Promise<void>;
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import {
+  finalizeExpenseAttachmentUpload,
+  prepareExpenseAttachmentUpload,
+  type ExpenseAttachmentTarget,
+} from "@/app/app/despesas/actions";
+import { createClient } from "@/lib/supabase/client";
+import { RECEIPT_BUCKET, validateReceiptFile } from "@/lib/storage";
 
 export function AttachmentUploadForm({
-  action,
-  hiddenFields,
-  redirectTo,
+  target,
   label,
-  paymentAmount,
 }: {
-  action: Action;
-  hiddenFields: Record<string, string>;
-  redirectTo: string;
+  target: ExpenseAttachmentTarget;
   label: string;
-  paymentAmount?: {
-    defaultValue: number;
-    max: number;
-  };
 }) {
+  const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [supabase] = useState(() => createClient());
   const [fileName, setFileName] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
     setFileName(event.target.files?.[0]?.name ?? null);
+    setMessage(null);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setMessage({ kind: "error", text: "Selecione um arquivo." });
+      return;
+    }
+    const validationError = validateReceiptFile(file);
+    if (validationError) {
+      setMessage({ kind: "error", text: validationError });
+      return;
+    }
+
+    setPending(true);
+    setMessage(null);
+    try {
+      const preparation = await prepareExpenseAttachmentUpload(target, {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+      if (!preparation.ok || !preparation.path || !preparation.token) {
+        setMessage({ kind: "error", text: preparation.message });
+        return;
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from(RECEIPT_BUCKET)
+        .uploadToSignedUrl(preparation.path, preparation.token, file, {
+          contentType: file.type || undefined,
+          upsert: false,
+        });
+      if (uploadError) {
+        setMessage({ kind: "error", text: uploadError.message });
+        return;
+      }
+
+      const result = await finalizeExpenseAttachmentUpload(target, {
+        path: preparation.path,
+        name: file.name || "arquivo",
+      });
+      if (!result.ok) {
+        setMessage({ kind: "error", text: result.message });
+        return;
+      }
+
+      formRef.current?.reset();
+      setFileName(null);
+      setMessage({ kind: "success", text: result.message });
+      router.refresh();
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível enviar o arquivo.",
+      });
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
-    <form action={action} className="attachment-upload-form">
-      {Object.entries(hiddenFields).map(([key, value]) => (
-        <input key={key} type="hidden" name={key} value={value} />
-      ))}
-      <input type="hidden" name="redirect_to" value={redirectTo} />
-      {paymentAmount && (
-        <label className="field">
-          Valor pago
-          <input
-            type="number"
-            name="payment_amount"
-            min="0.01"
-            max={paymentAmount.max.toFixed(2)}
-            step="0.01"
-            defaultValue={paymentAmount.defaultValue.toFixed(2)}
-            inputMode="decimal"
-            required
-          />
-        </label>
-      )}
+    <form
+      ref={formRef}
+      className="attachment-upload-form"
+      onSubmit={handleSubmit}
+    >
       <label className="file-input-label">
         <input
+          ref={fileRef}
           type="file"
           name="file"
           accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
           onChange={handleChange}
           required
+          disabled={pending}
         />
-        <span>{fileName ?? "Escolher arquivo (PDF ou foto)"}</span>
+        <span>{fileName ?? "Escolher arquivo (PDF ou foto, até 8MB)"}</span>
       </label>
-      <SubmitButton className="button secondary small" pendingLabel="Enviando...">
-        {label}
-      </SubmitButton>
+      <button className="button secondary small" type="submit" disabled={pending}>
+        {pending ? (
+          <>
+            <span className="spinner" aria-hidden="true" /> Enviando...
+          </>
+        ) : (
+          label
+        )}
+      </button>
+      {message && (
+        <span className={`message ${message.kind} inline-action-message`} role="status">
+          {message.text}
+        </span>
+      )}
     </form>
   );
 }

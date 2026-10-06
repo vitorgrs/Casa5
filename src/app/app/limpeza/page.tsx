@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarIcon, CheckIcon, PlusIcon, SettingsIcon } from "@/components/icons";
+import { CalendarIcon, CheckIcon, LaundryIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import {
@@ -13,7 +13,7 @@ import {
   type RotationSwap,
   type StandardDailyTask,
 } from "@/lib/chore-rotation";
-import { deleteTask } from "../organizacao/actions";
+import { TaskMutationForm } from "../organizacao/task-forms";
 import {
   recordDailyExtraTask,
   requestDaySwap,
@@ -227,13 +227,16 @@ export default async function ChoresPage({
             para ver a lista, registrar o que foi feito ou solicitar uma troca.
           </p>
         </div>
-        {profile.role === "admin" && (
-          <div className="page-actions">
+        <div className="page-actions">
+          <Link className="button secondary" href="/app/limpeza/lavanderia">
+            <LaundryIcon /> Lavanderia
+          </Link>
+          {profile.role === "admin" && (
             <Link className="button secondary" href="/app/limpeza/rotina">
               <SettingsIcon /> Administrar rotina
             </Link>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {params.success && <div className="message success">{params.success}</div>}
@@ -435,15 +438,13 @@ export default async function ChoresPage({
                           <small>{task.description ?? "Tarefa extra concluída."}</small>
                         </div>
                         {canManageTasks && (
-                          <form action={deleteTask}>
-                            <input type="hidden" name="task_id" value={task.id} />
-                            <input
-                              type="hidden"
-                              name="redirect_to"
-                              value={`/app/limpeza?month=${month}&day=${selectedDay}`}
-                            />
-                            <button className="button danger small" type="submit">Excluir</button>
-                          </form>
+                          <TaskMutationForm
+                            mode="delete"
+                            taskId={task.id}
+                            redirectTo={`/app/limpeza?month=${month}&day=${selectedDay}`}
+                            label="Excluir"
+                            className="button danger small"
+                          />
                         )}
                       </div>
                     ))}
