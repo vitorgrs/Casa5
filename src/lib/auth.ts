@@ -29,20 +29,26 @@ export function can(profile: AppProfile, perm: PermissionKey): boolean {
   return Boolean(profile.permissions?.[perm]);
 }
 
-export async function requireUser() {
-  const supabase = await createClient();
+export async function requireUser(signal?: AbortSignal) {
+  const supabase = await createClient(signal);
   const { data: { user } } = await supabase.auth.getUser();
+  signal?.throwIfAborted();
   if (!user) redirect("/login");
   return { supabase, user };
 }
 
-export async function requireActiveProfile(): Promise<{ profile: AppProfile; supabase: Awaited<ReturnType<typeof createClient>> }> {
-  const { supabase, user } = await requireUser();
-  const { data: profile } = await supabase
+export async function requireActiveProfile(signal?: AbortSignal): Promise<{ profile: AppProfile; supabase: Awaited<ReturnType<typeof createClient>> }> {
+  const { supabase, user } = await requireUser(signal);
+  let profileQuery = supabase
     .from("profiles")
     .select("id, full_name, email, role, status, household_id, member_id, permissions")
-    .eq("id", user.id)
-    .single();
+    .eq("id", user.id);
+  if (signal) profileQuery = profileQuery.abortSignal(signal);
+  const { data: profile, error: profileError } = await profileQuery.single();
+  signal?.throwIfAborted();
+  if (profileError && profileError.code !== "PGRST116") {
+    throw new Error(profileError.message);
+  }
 
   if (!profile || profile.status !== "active" || !profile.household_id) {
     redirect("/aguardando");
@@ -54,16 +60,16 @@ export async function requireActiveProfile(): Promise<{ profile: AppProfile; sup
   };
 }
 
-export async function requireAdmin() {
-  const result = await requireActiveProfile();
+export async function requireAdmin(signal?: AbortSignal) {
+  const result = await requireActiveProfile(signal);
   if (result.profile.role !== "admin") {
     throw new Error("Somente o administrador pode fazer isso.");
   }
   return result;
 }
 
-export async function requirePermission(perm: PermissionKey) {
-  const result = await requireActiveProfile();
+export async function requirePermission(perm: PermissionKey, signal?: AbortSignal) {
+  const result = await requireActiveProfile(signal);
   if (!can(result.profile, perm)) {
     throw new Error("Você não tem permissão para fazer isso. Peça ao administrador para liberar o acesso em Configurações > Permissões.");
   }

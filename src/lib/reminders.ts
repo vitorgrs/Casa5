@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, daysBetween, todayIso as houseTodayIso } from "@/lib/chore-rotation";
-import { emailConfigured, expenseReminderEmail, sendEmail } from "@/lib/email";
+import {
+  emailConfigurationError,
+  emailConfigured,
+  emailProviderName,
+  expenseReminderEmail,
+  sendEmail,
+} from "@/lib/email";
 
 export type ReminderRunResult = {
   ok: boolean;
@@ -27,8 +33,7 @@ export async function runExpenseReminders(
       candidates: 0,
       skippedAlreadySent: 0,
       failures: [],
-      message:
-        "BREVO_API_KEY e/ou BREVO_FROM_EMAIL não estão definidos nas variáveis de ambiente.",
+      message: emailConfigurationError(),
     };
   }
 
@@ -141,6 +146,7 @@ export async function runExpenseReminders(
         subject,
         html,
         tags: ["casa5-lembrete-vencimento"],
+        idempotencyKey: `expense-reminder:${todayIso}:${job.shareId}`,
       });
       sent += 1;
     } catch (error) {
@@ -172,7 +178,8 @@ export async function runExpenseReminders(
     Array.from({ length: Math.min(5, jobs.length) }, () => worker()),
   );
 
-  let message = `O Brevo aceitou ${sent} de ${candidates} lembrete(s) para processamento. Isso ainda não confirma a entrega; acompanhe em Brevo > Transacional > Logs.`;
+  const provider = emailProviderName() ?? "O provedor de e-mail";
+  let message = `${provider} aceitou ${sent} de ${candidates} lembrete(s) para processamento. Isso ainda não confirma a entrega; acompanhe os logs no painel do provedor.`;
   if (skippedAlreadySent > 0) {
     message += ` ${skippedAlreadySent} já tinham sido avisados hoje.`;
   }

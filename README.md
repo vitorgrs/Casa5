@@ -81,9 +81,9 @@ SUPABASE_SERVICE_ROLE_KEY=sb_secret_xxxxxxxxx
 MERCADO_PAGO_ACCESS_TOKEN=APP_USR-xxxxxxxxx
 CRON_SECRET=uma-chave-grande-e-aleatoria
 NEXT_PUBLIC_APP_URL=http://localhost:3000
-BREVO_API_KEY=xkeysib-xxxxxxxxx
-BREVO_FROM_EMAIL=remetente-confirmado@exemplo.com
-BREVO_FROM_NAME=Casa Cinco
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_xxxxxxxxx
+RESEND_FROM=Casa Cinco <lembretes@seu-dominio.com>
 ```
 
 Nunca envie `.env.local` ao GitHub. A chave secreta do Supabase e o token do Mercado Pago são usados apenas no servidor.
@@ -180,6 +180,11 @@ A rotina das 07:00:
 - grava um evento técnico no banco.
 
 A rota exige o cabeçalho `Authorization: Bearer <CRON_SECRET>`.
+Os jobs só são criados por deploys de produção. Depois de definir ou alterar
+`CRON_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` ou as credenciais de e-mail na
+Vercel, faça um novo deploy e confirme os dois jobs em **Settings → Cron Jobs**.
+No plano Hobby, cada job diário pode executar em qualquer momento dentro da
+hora configurada; a Vercel não repete automaticamente uma execução que falhou.
 
 ## 9. Fluxo de uso recomendado
 
@@ -278,26 +283,26 @@ Em **Moradores**, cada morador pode ter uma chave PIX cadastrada por quem
 tiver a permissão "gerenciar moradores" (ou o administrador). A chave fica
 visível para todos os moradores ativos.
 
-### 8. E-mails transacionais (Brevo)
+### 8. E-mails transacionais (Resend ou Brevo)
 
-- O plano gratuito do Brevo permite 300 envios por dia, suficiente para os
-  lembretes e acertos de uma casa com poucos moradores.
-- No painel do Brevo, cadastre um remetente individual em **Settings →
-  Senders, Domains & Dedicated IPs → Senders** e confirme o endereço pelo
-  e-mail recebido. Depois, gere uma chave em **SMTP & API → API Keys**.
-- Defina na Vercel:
+- O sistema usa Resend ou Brevo. Se os dois estiverem configurados, Brevo é
+  usado por compatibilidade; defina `EMAIL_PROVIDER=resend` ou `brevo` para
+  escolher explicitamente.
+- No provedor escolhido, verifique o domínio/endereço remetente e crie a chave
+  da API. Para Resend, defina na Vercel:
   ```
-  BREVO_API_KEY=xkeysib-...
-  BREVO_FROM_EMAIL=seuemail@gmail.com
-  BREVO_FROM_NAME=Casa Cinco
+  EMAIL_PROVIDER=resend
+  RESEND_API_KEY=re_...
+  RESEND_FROM=Casa Cinco <lembretes@seu-dominio.com>
   NEXT_PUBLIC_APP_URL=https://SEU-APP.vercel.app
   ```
-- `BREVO_FROM_NAME` é opcional; na ausência, o sistema usa "Casa Cinco".
+- Como alternativa, use `EMAIL_PROVIDER=brevo`, `BREVO_API_KEY` e
+  `BREVO_FROM_EMAIL`; `BREVO_FROM_NAME` é opcional.
 - Sem a chave e o remetente, os envios ficam desativados automaticamente (o
   restante do cron diário continua funcionando normalmente).
 - Em Configurações, o administrador pode ligar/desligar os lembretes e
-  escolher com quantos dias de antecedência avisar, além de enviar
-  manualmente os acertos de compras em aberto.
+  escolher com quantos dias de antecedência avisar, processar os e-mails do
+  dia imediatamente e enviar manualmente os acertos de compras em aberto.
 - Cada parcela recebe no máximo um lembrete por dia (controlado pela tabela
   `expense_reminder_log`), então não há risco de spam mesmo rodando o cron
   várias vezes.
@@ -393,20 +398,21 @@ pronto para download.
 
 ### 7. E-mails — como testar e diagnosticar
 
-O botão **"Enviar lembretes de vencimento agora"** em Configurações (admin)
-roda a mesma lógica do cron manualmente e mostra o erro devolvido pelo Brevo,
-se houver. Prováveis causas de nenhum e-mail ter chegado:
+Os botões **"Processar e-mails de hoje agora"** e **"Enviar lembretes de
+vencimento agora"** em Configurações (admin) executam as mesmas rotinas do
+cron e mostram o erro devolvido pelo provedor, se houver. Prováveis causas de
+nenhum e-mail ter chegado:
 
-1. **Remetente não confirmado no Brevo.** O endereço informado em
-   `BREVO_FROM_EMAIL` precisa estar cadastrado em **Senders** e confirmado
-   pelo link enviado a essa caixa de e-mail.
+1. **Remetente não confirmado.** O domínio/endereço de `RESEND_FROM` ou
+   `BREVO_FROM_EMAIL` precisa estar verificado no provedor selecionado.
 2. **`NEXT_PUBLIC_APP_URL=http://localhost:3000`** no seu `.env` de produção
    está incorreto — deveria ser a URL pública do seu app na Vercel (ex.:
    `https://casa5.vercel.app`). Isso não impede o envio, mas faz o link
    dentro do e-mail apontar para localhost.
-3. **O cron da Vercel só roda 1x por dia** (plano gratuito). Se você acabou
-   de configurar as variáveis, é normal ainda não ter rodado — use o botão
-   de teste manual para não precisar esperar.
+3. **O cron não foi implantado em produção.** Os jobs não rodam em Preview;
+   depois de alterar variáveis ou `vercel.json`, faça um deploy de produção e
+   confira **Settings → Cron Jobs**. No Hobby, o disparo pode ocorrer em
+   qualquer minuto dentro da hora agendada.
 4. **Nenhuma despesa dentro da janela de lembrete** (padrão: 3 dias antes do
    vencimento) também faz o teste retornar "0 lembretes enviados" sem erro.
 

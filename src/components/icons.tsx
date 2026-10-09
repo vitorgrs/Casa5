@@ -29,3 +29,4 @@ export const ChecklistIcon = (props: IconProps) => <IconBase {...props}><path d=
 export const CartIcon = (props: IconProps) => <IconBase {...props}><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M2 3h2l2.6 12.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L21 8H6"/></IconBase>;
 export const MessageIcon = (props: IconProps) => <IconBase {...props}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></IconBase>;
 export const LaundryIcon = (props: IconProps) => <IconBase {...props}><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h.01M12 6h4"/><circle cx="12" cy="14" r="5"/><path d="M9 14c1.2-1.2 2.1-1.1 3 0s1.8 1.2 3 0"/></IconBase>;
+export const WaterIcon = (props: IconProps) => <IconBase {...props}><path d="M12 2.8S5.5 10 5.5 15.2a6.5 6.5 0 0 0 13 0C18.5 10 12 2.8 12 2.8Z"/><path d="M9 16.2a3.2 3.2 0 0 0 3 2.1"/></IconBase>;

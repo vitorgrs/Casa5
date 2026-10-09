@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  emailConfigurationError,
   emailConfigured,
+  emailProviderName,
   openSettlementsEmail,
   sendEmail,
   type SettlementEmailAccount,
@@ -82,9 +84,7 @@ export async function runOpenSettlementEmails(
   householdId: string,
 ): Promise<SettlementEmailRunResult> {
   if (!emailConfigured()) {
-    return emptyResult(
-      "BREVO_API_KEY e/ou BREVO_FROM_EMAIL não estão definidos nas variáveis de ambiente.",
-    );
+    return emptyResult(emailConfigurationError());
   }
 
   const [{ data: shares, error: sharesError }, { data: pendingPayments, error: paymentsError }] =
@@ -284,7 +284,8 @@ export async function runOpenSettlementEmails(
     }
   }
 
-  let message = `O Brevo aceitou ${sent} de ${candidates.length} envio(s) para processamento, com ${settlements} acerto(s) detalhado(s). Isso ainda não confirma a entrega; acompanhe em Brevo > Transacional > Logs.`;
+  const provider = emailProviderName() ?? "O provedor de e-mail";
+  let message = `${provider} aceitou ${sent} de ${candidates.length} envio(s) para processamento, com ${settlements} acerto(s) detalhado(s). Isso ainda não confirma a entrega; acompanhe os logs no painel do provedor.`;
   if (failures.length > 0) {
     message += ` ${failures.length} envio(s) falharam — ${failures[0].error}`;
   }

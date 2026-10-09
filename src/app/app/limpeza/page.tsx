@@ -19,6 +19,11 @@ import {
   requestDaySwap,
   toggleDailyTaskCompletion,
 } from "./actions";
+import {
+  WaterGallonManager,
+  type WaterGallonPayment,
+  type WaterGallonSuggestion,
+} from "./water-gallon-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -80,12 +85,16 @@ export default async function ChoresPage({
 
   const [
     { data: settings },
-    { data: members },
+    { data: members, error: membersError },
     { data: rotationRows },
     { data: swaps },
     { data: completions },
     { data: calendarTasks },
     { data: standardTaskRows },
+    { data: waterSettings, error: waterSettingsError },
+    { data: waterRotationRows, error: waterRotationError },
+    { data: waterPayments, error: waterPaymentsError },
+    { data: waterSuggestions, error: waterSuggestionsError },
   ] = await Promise.all([
     supabase
       .from("daily_rotation_settings")
@@ -133,6 +142,26 @@ export default async function ChoresPage({
       .eq("active", true)
       .order("display_order")
       .order("created_at"),
+    supabase
+      .from("water_gallon_rotation_settings")
+      .select("current_member_id,current_since,updated_at")
+      .eq("household_id", profile.household_id)
+      .maybeSingle(),
+    supabase
+      .from("water_gallon_rotation_members")
+      .select("member_id,rotation_order")
+      .eq("household_id", profile.household_id)
+      .order("rotation_order"),
+    supabase
+      .from("water_gallon_payments")
+      .select(
+        "id,member_id,member_name_snapshot,paid_on,source,purchase_id,next_member_id,next_member_name_snapshot,note",
+      )
+      .eq("household_id", profile.household_id)
+      .order("paid_on", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(12),
+    supabase.rpc("get_water_gallon_purchase_suggestions"),
   ]);
 
   const standardTasks = (standardTaskRows ?? []) as StandardDailyTask[];
@@ -150,6 +179,37 @@ export default async function ChoresPage({
     }))
     .sort((first, second) => first.rotation_order - second.rotation_order);
   const rotationSwaps = (swaps ?? []) as RotationSwap[];
+  const waterOrderByMember = new Map(
+    (waterRotationRows ?? []).map((row) => [row.member_id, row.rotation_order]),
+  );
+  const waterRotationMembers = (members ?? [])
+    .map((member) => ({
+      id: member.id,
+      name: member.name,
+      initials: member.initials,
+      color_key: member.color_key,
+      rotation_order: waterOrderByMember.get(member.id) ?? member.display_order,
+    }))
+    .sort((first, second) => first.rotation_order - second.rotation_order);
+  const activeWaterMemberIds = new Set((members ?? []).map((member) => member.id));
+  const configuredWaterMemberIds = new Set(
+    (waterRotationRows ?? [])
+      .map((row) => row.member_id)
+      .filter((memberId) => activeWaterMemberIds.has(memberId)),
+  );
+  const waterConfigurationReady = Boolean(
+    waterSettings?.current_member_id &&
+      activeWaterMemberIds.has(waterSettings.current_member_id) &&
+      configuredWaterMemberIds.size === activeWaterMemberIds.size &&
+      (waterRotationRows ?? []).length === activeWaterMemberIds.size,
+  );
+  const waterLoadError = [
+    membersError,
+    waterSettingsError,
+    waterRotationError,
+    waterPaymentsError,
+    waterSuggestionsError,
+  ].find(Boolean);
   const completedKeys = new Set(
     (completions ?? []).map(
       (completion) => `${completion.reference_date}:${completion.task_key}`,
@@ -241,6 +301,23 @@ export default async function ChoresPage({
 
       {params.success && <div className="message success">{params.success}</div>}
       {params.error && <div className="message error">{params.error}</div>}
+
+      <WaterGallonManager
+        initialMembers={waterRotationMembers.map(
+          ({ rotation_order: _rotationOrder, ...member }) => member,
+        )}
+        currentMemberId={waterSettings?.current_member_id ?? null}
+        currentSince={waterSettings?.current_since ?? null}
+        suggestions={(waterSuggestions ?? []) as WaterGallonSuggestion[]}
+        payments={(waterPayments ?? []) as WaterGallonPayment[]}
+        canManage={profile.role === "admin"}
+        configurationReady={waterConfigurationReady}
+        loadError={
+          waterLoadError
+            ? "Não foi possível carregar todas as informações do rodízio de água. Atualize a página e tente novamente."
+            : null
+        }
+      />
 
       <section className="card pad rotation-calendar-card">
         <div className="month-nav rotation-month-nav">

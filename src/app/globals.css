@@ -2769,6 +2769,256 @@ textarea {
   align-items: start;
   margin-top: 16px;
 }
+
+.water-gallon-card {
+  margin-top: 16px;
+  overflow: hidden;
+}
+.water-gallon-head > svg {
+  color: var(--cyan);
+}
+.water-gallon-body {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+.water-current-turn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 88px;
+  padding: 16px;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(34, 211, 238, 0.12), transparent 42%),
+    var(--panel-2);
+}
+.water-current-turn .avatar {
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  font-size: 14px;
+}
+.water-current-turn > div:last-child {
+  display: grid;
+  gap: 3px;
+}
+.water-current-turn span,
+.water-current-turn small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.water-current-turn .water-last-payment {
+  color: #c7d2fe;
+  margin-top: 3px;
+}
+.water-current-turn strong {
+  font-size: 21px;
+  letter-spacing: -0.03em;
+}
+.water-viewer-note {
+  margin: 0;
+}
+.water-load-error,
+.water-configuration-note {
+  margin: 0;
+}
+.water-manual-payment-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.45fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 13px;
+}
+.water-manual-payment-form .inline-action-message {
+  grid-column: 1 / -1;
+}
+.water-suggestions {
+  display: grid;
+  gap: 10px;
+}
+.water-suggestion-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 14px;
+  background: rgba(251, 191, 36, 0.055);
+}
+.water-suggestion-copy {
+  display: grid;
+  gap: 4px;
+}
+.water-suggestion-copy > strong {
+  font-size: 14px;
+}
+.water-suggestion-copy > small,
+.water-suggestion-copy > p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.water-suggestion-copy > p {
+  margin: 4px 0 0;
+}
+.water-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.water-suggestion-actions form {
+  display: flex;
+}
+.water-suggestion-card > .inline-action-message {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+.water-rotation-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+.water-rotation-person {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 11px 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+.water-rotation-person > span {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.water-rotation-person .avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 9px;
+}
+.water-rotation-person strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+.water-rotation-person.current {
+  border-color: rgba(34, 211, 238, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.08);
+}
+.water-rotation-person.current::after {
+  content: "vez atual";
+  color: var(--cyan);
+  font-size: 8px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+.water-gallon-settings {
+  margin: 0;
+}
+.water-gallon-settings > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.water-gallon-settings > summary svg {
+  width: 16px;
+  height: 16px;
+}
+.water-gallon-settings-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 18px;
+}
+.water-change-turn-form {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+.water-gallon-settings-body .inline-action-message {
+  margin: 0;
+}
+.water-payment-history {
+  border-top: 1px solid var(--line);
+  padding-top: 13px;
+}
+.water-payment-history > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+.water-payment-history-list {
+  display: grid;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.water-payment-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.water-payment-history-row:last-child {
+  border-bottom: 0;
+}
+.water-payment-history-row > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+.water-payment-history-row strong {
+  font-size: 11px;
+}
+.water-payment-history-row small {
+  color: var(--muted);
+  font-size: 9px;
+}
+@media (max-width: 720px) {
+  .water-gallon-body {
+    padding: 14px;
+  }
+  .water-manual-payment-form,
+  .water-suggestion-card,
+  .water-gallon-settings-body {
+    grid-template-columns: 1fr;
+  }
+  .water-suggestion-actions {
+    justify-content: flex-start;
+  }
+  .water-rotation-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .water-rotation-person.current {
+    grid-column: span 2;
+  }
+  .water-change-turn-form {
+    padding-top: 18px;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  .water-payment-history-row {
+    grid-template-columns: 1fr;
+  }
+  .water-payment-history-row .item-value {
+    text-align: left;
+  }
+}
 .rotation-admin-card-head {
   padding: 0 0 16px;
 }

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayIso } from "@/lib/chore-rotation";
 import {
+  emailConfigurationError,
   emailConfigured,
   laundryReminderEmail,
   sendEmail,
@@ -70,7 +71,7 @@ async function reserveLaundryReminder(
 
   if (logError?.code !== "23505") return { log, logError, skipped: false };
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("laundry_reminder_log")
     .select("id,sent_at,created_at")
     .eq("household_id", householdId)
@@ -78,12 +79,16 @@ async function reserveLaundryReminder(
     .eq("reminder_date", reminderDate)
     .maybeSingle();
 
+  if (existingError) {
+    return { log: null, logError: existingError, skipped: false };
+  }
+
   if (existing?.sent_at) {
     return { log: null, logError: null, skipped: true };
   }
 
   const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  const { data: released } = existing
+  const { data: released, error: releaseError } = existing
     ? await supabase
         .from("laundry_reminder_log")
         .delete()
@@ -92,9 +97,14 @@ async function reserveLaundryReminder(
         .lt("created_at", staleBefore)
         .select("id")
         .maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
 
-  if (!released) return { log: null, logError: null, skipped: true };
+  if (releaseError) {
+    return { log: null, logError: releaseError, skipped: false };
+  }
+  if (existing && !released) {
+    return { log: null, logError: null, skipped: true };
+  }
 
   const retry = await supabase
     .from("laundry_reminder_log")
@@ -168,6 +178,7 @@ async function sendMemberLaundryReminder(
       subject,
       html,
       tags: ["casa5-lavanderia"],
+      idempotencyKey: `laundry:${reminderDate}:${member.id}`,
     });
     const { error: updateError } = await supabase
       .from("laundry_reminder_log")
@@ -336,8 +347,7 @@ export async function runDailyLaundryReminder(
       sent: 0,
       skippedAlreadySent: 0,
       failed: dutiesByMember.size,
-      message:
-        "BREVO_API_KEY e um remetente em BREVO_FROM_EMAIL ou RESEND_FROM não estão configurados.",
+      message: emailConfigurationError(),
     };
   }
 
@@ -386,4 +396,3 @@ export async function runDailyLaundryReminder(
     message: details.length ? `${summary} ${details.join(" ")}` : summary,
   };
 }
-

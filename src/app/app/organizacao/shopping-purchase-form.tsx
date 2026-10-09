@@ -4,7 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { FormActionMessage } from "@/components/form-action-message";
 import { PlusIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
-import { initialFormActionState } from "@/lib/form-action-state";
+import { initialFormActionState, type FormActionState } from "@/lib/form-action-state";
 import {
   addShoppingItem,
   deleteShoppingItem,
@@ -31,6 +31,37 @@ type ShoppingItem = {
 
 type PurchaseScope = "household" | "group" | "individual";
 type SplitMode = "equal" | "custom";
+
+const PURCHASE_CLIENT_TIMEOUT_MS = 20_000;
+
+async function recordShoppingPurchaseWithTimeout(
+  previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<FormActionState>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        status: "error",
+        message: "Não recebemos uma resposta a tempo. Os itens e valores foram mantidos; aguarde alguns segundos e tente novamente.",
+      });
+    }, PURCHASE_CLIENT_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      recordShoppingPurchase(previousState, formData),
+      timeout,
+    ]);
+  } catch {
+    return {
+      status: "error",
+      message: "Não foi possível falar com o servidor. Os itens e valores foram mantidos; tente novamente.",
+    };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function hundredthsFromInput(value: string) {
   let normalized = value.trim().replace(/\s/g, "");
@@ -296,9 +327,13 @@ function PurchaseCheckoutForm({
   onCancel: () => void;
   onSuccess: () => void;
 }) {
-  const [state, formAction] = useActionState(recordShoppingPurchase, initialFormActionState);
+  const [state, formAction] = useActionState(
+    recordShoppingPurchaseWithTimeout,
+    initialFormActionState,
+  );
   const [scope, setScope] = useState<PurchaseScope>("household");
   const [splitMode, setSplitMode] = useState<SplitMode>("equal");
+  const [payerMemberId, setPayerMemberId] = useState("");
   const [participants, setParticipants] = useState<string[]>(members.map((member) => member.id));
   const [quantities, setQuantities] = useState<Record<string, string>>(() =>
     Object.fromEntries(items.map((item) => [item.id, String(item.quantity_planned ?? 1)])),
@@ -438,7 +473,12 @@ function PurchaseCheckoutForm({
 
         <label className="field">
           Quem pagou a compra inteira?
-          <select name="paid_by_member_id" required defaultValue="">
+          <select
+            name="paid_by_member_id"
+            required
+            value={payerMemberId}
+            onChange={(event) => setPayerMemberId(event.target.value)}
+          >
             <option value="" disabled>Selecione o pagador</option>
             {members.map((member) => (
               <option value={member.id} key={member.id}>{member.name}</option>

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export async function createClient() {
+export async function createClient(signal?: AbortSignal) {
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -21,7 +21,21 @@ export async function createClient() {
             // Server Components cannot always write cookies; Proxy refreshes them.
           }
         }
-      }
+      },
+      ...(signal
+        ? {
+            global: {
+              fetch(input: RequestInfo | URL, init?: RequestInit) {
+                const requestSignal = init?.signal;
+                const combinedSignal = requestSignal
+                  ? AbortSignal.any([signal, requestSignal])
+                  : signal;
+
+                return fetch(input, { ...init, signal: combinedSignal });
+              },
+            },
+          }
+        : {}),
     }
   );
 }

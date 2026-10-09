@@ -2,10 +2,11 @@ import Link from "next/link";
 import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
-import { emailConfigured } from "@/lib/email";
+import { emailConfigured, emailProviderName } from "@/lib/email";
 import { asNumber, currency } from "@/lib/format";
 import {
   addManualBalance,
+  sendDailyEmailsNow,
   sendOpenSettlementsNow,
   sendRemindersNow,
   syncMercadoPago,
@@ -54,7 +55,16 @@ export default async function SettingsPage({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const brevoConfigured = emailConfigured();
+  const { data: lastMorningRun } = await supabase
+    .from("system_events")
+    .select("created_at,detail,metadata")
+    .eq("household_id", profile.household_id)
+    .eq("event_type", "daily_chore_reminder")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const emailReady = emailConfigured();
+  const emailProvider = emailProviderName();
 
   return (
     <>
@@ -256,22 +266,56 @@ export default async function SettingsPage({
                 se o job está agendado e se já rodou.
               </div>
             )}
+            {lastMorningRun ? (
+              <div className="message info" style={{ marginTop: 10 }}>
+                Último cron de e-mails: {new Date(lastMorningRun.created_at).toLocaleString("pt-BR")}
+                <br />
+                Rotina da casa: {(lastMorningRun.metadata as { choreReminder?: { message?: string } })?.choreReminder?.message ?? "—"}
+                <br />
+                Lavanderia: {(lastMorningRun.metadata as { laundryReminder?: { message?: string } })?.laundryReminder?.message ?? "—"}
+              </div>
+            ) : (
+              <div className="message info" style={{ marginTop: 10 }}>
+                O cron de e-mails das 06:00 ainda não registrou nenhuma execução.
+              </div>
+            )}
+            {profile.role === "admin" && (
+              <form action={sendDailyEmailsNow} style={{ marginTop: 12 }}>
+                <input type="hidden" name="redirect_to" value="/app/configuracoes" />
+                <SubmitButton
+                  className="button secondary"
+                  disabled={!emailReady}
+                  pendingLabel="Processando e-mails..."
+                >
+                  Processar e-mails de hoje agora
+                </SubmitButton>
+              </form>
+            )}
           </section>
 
           {profile.role === "admin" && (
             <section className="card pad">
               <h3 style={{ marginTop: 0 }}>Lembretes de vencimento por e-mail</h3>
               <p className="note">
-                Usa a API transacional do Brevo. No plano gratuito, cadastre e
-                confirme um remetente individual, como seu Gmail, e defina{" "}
-                <code>BREVO_API_KEY</code> e <code>BREVO_FROM_EMAIL</code> (ou
-                <code> RESEND_FROM</code>) nas
-                variáveis de ambiente da Vercel. O nome do remetente pode ser
-                personalizado com <code>BREVO_FROM_NAME</code>.
+                Usa Resend ou Brevo. Configure <code>RESEND_API_KEY</code> e{" "}
+                <code>RESEND_FROM</code>, ou <code>BREVO_API_KEY</code> e{" "}
+                <code>BREVO_FROM_EMAIL</code>, nas variáveis da Vercel. O
+                remetente precisa estar verificado no provedor.
               </p>
               <div className="message info">
-                Status do Brevo:{" "}
-                <strong>{brevoConfigured ? "variáveis configuradas" : "faltam variáveis"}</strong>
+                Status do e-mail:{" "}
+                <strong>
+                  {emailReady
+                    ? `credenciais do ${emailProvider} presentes`
+                    : "faltam variáveis válidas"}
+                </strong>
+                {emailReady && (
+                  <>
+                    <br />
+                    A aceitação dos envios ainda depende de o remetente estar
+                    verificado no provedor.
+                  </>
+                )}
               </div>
               <form action={updateReminderSettings} className="stack-form">
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
@@ -299,7 +343,7 @@ export default async function SettingsPage({
               </form>
               <form action={sendRemindersNow} style={{ marginTop: 12 }}>
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
-                <SubmitButton className="button ghost" disabled={!brevoConfigured} pendingLabel="Enviando...">
+                <SubmitButton className="button ghost" disabled={!emailReady} pendingLabel="Enviando...">
                   Enviar lembretes de vencimento agora
                 </SubmitButton>
               </form>
@@ -324,7 +368,7 @@ export default async function SettingsPage({
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
                 <SubmitButton
                   className="button secondary"
-                  disabled={!brevoConfigured}
+                  disabled={!emailReady}
                   pendingLabel="Enviando acertos..."
                 >
                   Enviar acertos em aberto

@@ -1,13 +1,7 @@
 /**
- * Envio transacional pelo Brevo. A mesma função atende os lembretes de
- * vencimento e os acertos de contas, usando um remetente individual que deve
- * estar previamente cadastrado e verificado no painel do Brevo.
- *
- * Variáveis esperadas:
- *   BREVO_API_KEY=xkeysib-...
- *   BREVO_FROM_EMAIL=seuemail@gmail.com
- *   RESEND_FROM=Casa Cinco <seuemail@gmail.com> (alternativa já usada no deploy)
- *   BREVO_FROM_NAME=Casa Cinco (opcional)
+ * Envio transacional pelo Resend ou Brevo. O provedor é escolhido pelas
+ * credenciais disponíveis; EMAIL_PROVIDER=resend|brevo pode fixar a escolha.
+ * O remetente precisa estar verificado no painel do provedor selecionado.
  */
 
 type SendEmailInput = {
@@ -15,6 +9,18 @@ type SendEmailInput = {
   subject: string;
   html: string;
   tags?: string[];
+  idempotencyKey?: string;
+};
+
+type EmailProvider = "brevo" | "resend";
+
+type EmailConfiguration = {
+  provider: EmailProvider;
+  providerName: "Brevo" | "Resend";
+  apiKey: string;
+  fromEmail: string;
+  fromName: string;
+  from: string;
 };
 
 export type SettlementEmailPurchase = {
@@ -59,57 +65,181 @@ function formatEmailDate(value: string | null) {
     : date.toLocaleDateString("pt-BR");
 }
 
-function configuredFromEmail() {
-  const configured =
-    process.env.BREVO_FROM_EMAIL?.trim() || process.env.RESEND_FROM?.trim();
+function parseSender(value?: string) {
+  const configured = value?.trim();
   if (!configured) return null;
-  const bracketAddress = configured.match(/<([^<>]+)>/)?.[1]?.trim();
-  const email = bracketAddress || configured;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+  const bracketMatch = configured.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
+  const email = (bracketMatch?.[2] ?? configured).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  const name = bracketMatch?.[1]
+    ?.trim()
+    .replace(/^(["'])(.*)\1$/, "$2")
+    .trim();
+  return { email, name: name || null };
+}
+
+function providerPreference(): EmailProvider | null | "invalid" {
+  const value = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+  if (!value) return null;
+  return value === "brevo" || value === "resend" ? value : "invalid";
+}
+
+function configurationFor(provider: EmailProvider): EmailConfiguration | null {
+  const apiKey = (
+    provider === "brevo"
+      ? process.env.BREVO_API_KEY
+      : process.env.RESEND_API_KEY
+  )?.trim();
+  if (!apiKey) return null;
+
+  const sender = parseSender(
+    provider === "brevo"
+      ? process.env.BREVO_FROM_EMAIL ?? process.env.EMAIL_FROM ?? process.env.RESEND_FROM
+      : process.env.RESEND_FROM ?? process.env.EMAIL_FROM ?? process.env.BREVO_FROM_EMAIL,
+  );
+  if (!sender) return null;
+
+  const fromName =
+    sender.name || process.env.BREVO_FROM_NAME?.trim() || "Casa Cinco";
+  return {
+    provider,
+    providerName: provider === "brevo" ? "Brevo" : "Resend",
+    apiKey,
+    fromEmail: sender.email,
+    fromName,
+    from: `${fromName} <${sender.email}>`,
+  };
+}
+
+function emailConfiguration() {
+  const preferred = providerPreference();
+  if (preferred === "invalid") return null;
+  if (preferred) return configurationFor(preferred);
+  return configurationFor("brevo") ?? configurationFor("resend");
+}
+
+export function emailConfigurationError() {
+  const preferred = providerPreference();
+  if (preferred === "invalid") {
+    return "EMAIL_PROVIDER deve ser 'resend' ou 'brevo'.";
+  }
+  if (preferred === "resend") {
+    return "Configure RESEND_API_KEY e RESEND_FROM com um remetente verificado.";
+  }
+  if (preferred === "brevo") {
+    return "Configure BREVO_API_KEY e BREVO_FROM_EMAIL com um remetente verificado.";
+  }
+  return "Configure RESEND_API_KEY e RESEND_FROM, ou BREVO_API_KEY e BREVO_FROM_EMAIL, com um remetente verificado.";
+}
+
+export function emailProviderName() {
+  return emailConfiguration()?.providerName ?? null;
 }
 
 export function emailConfigured() {
-  return Boolean(process.env.BREVO_API_KEY && configuredFromEmail());
+  return Boolean(emailConfiguration());
 }
 
-export async function sendEmail({ to, subject, html, tags }: SendEmailInput) {
-  const apiKey = process.env.BREVO_API_KEY;
-  const fromEmail = configuredFromEmail();
-  const fromName = process.env.BREVO_FROM_NAME?.trim() || "Casa Cinco";
-  if (!apiKey || !fromEmail) {
+function responseDetail(body: string) {
+  if (!body) return "resposta sem detalhes";
+  try {
+    const parsed = JSON.parse(body) as {
+      message?: string;
+      error?: string | { message?: string };
+    };
+    if (typeof parsed.message === "string") return parsed.message.slice(0, 500);
+    if (typeof parsed.error === "string") return parsed.error.slice(0, 500);
+    if (parsed.error?.message) return parsed.error.message.slice(0, 500);
+  } catch {
+    // O corpo nem sempre é JSON (por exemplo, em falhas de proxy/CDN).
+  }
+  return body.slice(0, 500);
+}
+
+function resendTags(tags?: string[]) {
+  return tags?.map((tag, index) => ({
+    name: index === 0 ? "category" : `category_${index + 1}`,
+    value: tag.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 256),
+  }));
+}
+
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  tags,
+  idempotencyKey,
+}: SendEmailInput) {
+  const configuration = emailConfiguration();
+  if (!configuration) throw new Error(emailConfigurationError());
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim())) {
+    throw new Error("O endereço de e-mail do destinatário é inválido.");
+  }
+
+  const normalizedIdempotencyKey = idempotencyKey?.trim().slice(0, 256);
+  const response =
+    configuration.provider === "brevo"
+      ? await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          signal: AbortSignal.timeout(15_000),
+          headers: {
+            "api-key": configuration.apiKey,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sender: {
+              name: configuration.fromName,
+              email: configuration.fromEmail,
+            },
+            to: [{ email: to.trim() }],
+            subject,
+            htmlContent: html,
+            tags,
+          }),
+        })
+      : await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          signal: AbortSignal.timeout(15_000),
+          headers: {
+            Authorization: `Bearer ${configuration.apiKey}`,
+            "Content-Type": "application/json",
+            ...(normalizedIdempotencyKey
+              ? { "Idempotency-Key": normalizedIdempotencyKey }
+              : {}),
+          },
+          body: JSON.stringify({
+            from: configuration.from,
+            to: [to.trim()],
+            subject,
+            html,
+            tags: resendTags(tags),
+          }),
+        });
+
+  const body = await response.text();
+  if (!response.ok) {
     throw new Error(
-      "BREVO_API_KEY e um remetente em BREVO_FROM_EMAIL ou RESEND_FROM não estão configurados.",
+      `${configuration.providerName} ${response.status}: ${responseDetail(body)}`,
     );
   }
 
-  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-    method: "POST",
-    signal: AbortSignal.timeout(15_000),
-    headers: {
-      "api-key": apiKey,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      sender: { name: fromName, email: fromEmail },
-      to: [{ email: to }],
-      subject,
-      htmlContent: html,
-      tags,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Brevo ${response.status}: ${body.slice(0, 500)}`);
+  let result: { messageId?: string; id?: string };
+  try {
+    result = JSON.parse(body) as { messageId?: string; id?: string };
+  } catch {
+    throw new Error(
+      `${configuration.providerName} aceitou a chamada, mas devolveu uma resposta inválida.`,
+    );
+  }
+  const messageId = result.messageId ?? result.id;
+  if (!messageId) {
+    throw new Error(
+      `${configuration.providerName} aceitou a chamada, mas não devolveu o identificador do envio.`,
+    );
   }
 
-  const result = (await response.json()) as { messageId?: string };
-  if (!result.messageId) {
-    throw new Error("O Brevo aceitou a chamada, mas não devolveu o identificador do envio.");
-  }
-
-  return { messageId: result.messageId };
+  return { messageId, provider: configuration.providerName };
 }
 
 export function expenseReminderEmail(params: {

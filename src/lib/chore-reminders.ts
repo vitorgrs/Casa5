@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayIso } from "@/lib/chore-rotation";
 import {
   dailyChoreReminderEmail,
+  emailConfigurationError,
   emailConfigured,
+  emailProviderName,
   sendEmail,
 } from "@/lib/email";
 
@@ -37,8 +39,7 @@ export async function runDailyChoreReminder(
       ok: false,
       sent: 0,
       skippedAlreadySent: 0,
-      message:
-        "BREVO_API_KEY e um remetente em BREVO_FROM_EMAIL ou RESEND_FROM não estão configurados.",
+      message: emailConfigurationError(),
     };
   }
 
@@ -114,13 +115,21 @@ export async function runDailyChoreReminder(
     .single();
 
   if (logError?.code === "23505") {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from("daily_chore_reminder_log")
       .select("id,sent_at,created_at")
       .eq("household_id", householdId)
       .eq("member_id", member.id)
       .eq("reminder_date", reminderDate)
       .maybeSingle();
+    if (existingError) {
+      return {
+        ok: false,
+        sent: 0,
+        skippedAlreadySent: 0,
+        message: `Não foi possível consultar a reserva existente: ${existingError.message}`,
+      };
+    }
 
     if (existing?.sent_at) {
       return {
@@ -132,7 +141,7 @@ export async function runDailyChoreReminder(
     }
 
     const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { data: released } = existing
+    const { data: released, error: releaseError } = existing
       ? await supabase
           .from("daily_chore_reminder_log")
           .delete()
@@ -141,9 +150,18 @@ export async function runDailyChoreReminder(
           .lt("created_at", staleBefore)
           .select("id")
           .maybeSingle()
-      : { data: null };
+      : { data: null, error: null };
 
-    if (!released) {
+    if (releaseError) {
+      return {
+        ok: false,
+        sent: 0,
+        skippedAlreadySent: 0,
+        message: `Não foi possível liberar a reserva anterior: ${releaseError.message}`,
+      };
+    }
+
+    if (existing && !released) {
       return {
         ok: true,
         sent: 0,
@@ -189,6 +207,7 @@ export async function runDailyChoreReminder(
       subject,
       html,
       tags: ["casa5-rotina-diaria"],
+      idempotencyKey: `daily-chore:${reminderDate}:${member.id}`,
     });
     const { error: updateError } = await supabase
       .from("daily_chore_reminder_log")
@@ -200,7 +219,7 @@ export async function runDailyChoreReminder(
       sent: 1,
       skippedAlreadySent: 0,
       message: updateError
-        ? `O Brevo aceitou o e-mail, mas o log não foi finalizado: ${updateError.message}`
+        ? `${emailProviderName() ?? "O provedor"} aceitou o e-mail, mas o log não foi finalizado: ${updateError.message}`
         : `Lembrete diário enviado para ${member.name}.`,
     };
   } catch (error) {

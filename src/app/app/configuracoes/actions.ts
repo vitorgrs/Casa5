@@ -138,6 +138,27 @@ export async function sendRemindersNow(formData: FormData) {
   redirect(`${pathOf(returnTo)}?${kind}=${encodeURIComponent(`Lembretes: ${result.message}`)}`);
 }
 
+export async function sendDailyEmailsNow(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes");
+  const { profile } = await requireAdmin();
+  const supabase = createServiceClient();
+  const [{ runDailyChoreReminder }, { runDailyLaundryReminder }] =
+    await Promise.all([
+      import("@/lib/chore-reminders"),
+      import("@/lib/laundry-reminders"),
+    ]);
+  const [chore, laundry] = await Promise.all([
+    runDailyChoreReminder(supabase, profile.household_id!),
+    runDailyLaundryReminder(supabase, profile.household_id!),
+  ]);
+  revalidatePath(pathOf(returnTo));
+  const kind = chore.ok && laundry.ok ? "success" : "error";
+  const message = `Rotina da casa: ${chore.message} Lavanderia: ${laundry.message}`;
+  redirect(
+    `${pathOf(returnTo)}?${kind}=${encodeURIComponent(message)}`,
+  );
+}
+
 export async function sendOpenSettlementsNow(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
   const { profile } = await requireAdmin();

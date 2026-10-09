@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import {
   requireActiveProfile,
   requireAdmin,
@@ -15,6 +15,8 @@ import {
   validateStoredReceiptMetadata,
 } from "@/lib/storage";
 import { createServiceClient } from "@/lib/supabase/service";
+
+const SHOPPING_PURCHASE_TIMEOUT_MS = 15_000;
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -279,8 +281,9 @@ export async function recordShoppingPurchase(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requireAdmin();
+  const signal = AbortSignal.timeout(SHOPPING_PURCHASE_TIMEOUT_MS);
   try {
+    const { supabase } = await requireAdmin(signal);
     const itemIds = Array.from(
       new Set(formData.getAll("selected_item_ids").map(String).filter(Boolean)),
     );
@@ -351,22 +354,33 @@ export async function recordShoppingPurchase(
       }
     }
 
-    const { error } = await supabase.rpc("record_multi_item_shopping_purchase_v2", {
-      target_item_ids: itemIds,
-      purchased_quantities: quantities as number[],
-      purchased_unit_prices: unitPrices as number[],
-      selected_scope: scope,
-      payer_member_id: payerMemberId,
-      participant_member_ids: participantIds,
-      selected_split_mode: splitMode,
-      custom_share_cents: customShareCents,
-    });
+    const { error } = await supabase
+      .rpc("record_multi_item_shopping_purchase_v2", {
+        target_item_ids: itemIds,
+        purchased_quantities: quantities as number[],
+        purchased_unit_prices: unitPrices as number[],
+        selected_scope: scope,
+        payer_member_id: payerMemberId,
+        participant_member_ids: participantIds,
+        selected_split_mode: splitMode,
+        custom_share_cents: customShareCents,
+      })
+      .abortSignal(signal);
+    signal.throwIfAborted();
     if (error) return { status: "error", message: error.message };
 
     revalidatePath(pathOf(returnTo));
     revalidatePath("/app/eu");
+    revalidatePath("/app/limpeza");
     return { status: "success", message: "Compra registrada com sucesso." };
   } catch (error) {
+    unstable_rethrow(error);
+    if (signal.aborted) {
+      return {
+        status: "error",
+        message: "O registro demorou além do esperado e foi cancelado. Os itens e valores foram mantidos; tente novamente.",
+      };
+    }
     return {
       status: "error",
       message: error instanceof Error ? error.message : "Não foi possível registrar a compra.",
@@ -401,6 +415,7 @@ export async function resetShoppingPurchase(
 
     revalidatePath(pathOf(returnTo));
     revalidatePath("/app/eu");
+    revalidatePath("/app/limpeza");
     return { status: "success", message: "Itens devolvidos para a lista." };
   } catch (error) {
     return {
@@ -431,6 +446,7 @@ export async function removeItemFromShoppingPurchase(
 
     revalidatePath(pathOf(returnTo));
     revalidatePath("/app/eu");
+    revalidatePath("/app/limpeza");
     return { status: "success", message: "Item retirado e devolvido para a lista." };
   } catch (error) {
     return {
