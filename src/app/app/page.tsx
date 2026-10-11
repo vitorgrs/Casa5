@@ -12,6 +12,7 @@ import { can, requireActiveProfile } from "@/lib/auth";
 import {
   addDays,
   formatHouseDate,
+  HOUSE_TIME_ZONE,
   rotationMemberForDate,
   todayIso,
   type RotationMember,
@@ -38,6 +39,17 @@ type MemberRelation = {
 function dashboardMonth() {
   const today = todayIso();
   return today < "2026-08-01" ? "2026-08-01" : `${today.slice(0, 7)}-01`;
+}
+
+function formatHouseTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "data não informada";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: HOUSE_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
 }
 
 export default async function DashboardPage() {
@@ -501,7 +513,7 @@ export default async function DashboardPage() {
                 </div>
                 {waterSettingsResult.data?.current_since && (
                   <p className="home-status-meta">
-                    Na vez desde {formatHouseDate(waterSettingsResult.data.current_since)}.
+                    Na vez desde {formatHouseTimestamp(waterSettingsResult.data.current_since)}.
                   </p>
                 )}
               </>
