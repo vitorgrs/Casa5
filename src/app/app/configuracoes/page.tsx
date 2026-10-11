@@ -249,6 +249,18 @@ export default async function SettingsPage({
               disparo só acontece depois do deploy — então é normal não ter
               rodado ainda se você acabou de configurar.
             </p>
+            <div className={`message ${emailReady ? "success" : "info"}`}>
+              E-mail para o responsável pelas tarefas do dia:{" "}
+              <strong>
+                {emailReady
+                  ? `ativo com ${emailProvider}`
+                  : "aguardando a configuração do provedor"}
+              </strong>
+              <br />
+              A rotina identifica a pessoa da escala e tenta enviar uma única
+              mensagem por dia. Não há uma chave separada para ativar ou
+              desativar esse lembrete.
+            </div>
             {lastRun ? (
               <div className="message info">
                 Última execução: {new Date(lastRun.created_at).toLocaleString("pt-BR")}

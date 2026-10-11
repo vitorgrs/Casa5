@@ -22,13 +22,26 @@ const purchaseSplitLabels: Record<string, string> = {
 };
 
 const PURCHASES_PER_PAGE = 10;
+const NO_PURCHASE_ID = "00000000-0000-0000-0000-000000000000";
+
+function purchaseHistoryHref(page: number, search: string) {
+  const query = new URLSearchParams({ compras_page: String(page) });
+  if (search) query.set("compras_busca", search);
+  return `/app/organizacao?${query.toString()}#historico-compras`;
+}
 
 export default async function OrganizacaoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ nova?: string; success?: string; compras_page?: string }>;
+  searchParams: Promise<{
+    nova?: string;
+    success?: string;
+    compras_page?: string;
+    compras_busca?: string;
+  }>;
 }) {
   const params = await searchParams;
+  const purchaseSearch = String(params.compras_busca ?? "").trim().slice(0, 100);
   const parsedPurchasePage = Number(params.compras_page ?? "1");
   const purchasePage = Number.isSafeInteger(parsedPurchasePage) &&
     parsedPurchasePage > 0 &&
@@ -42,6 +55,53 @@ export default async function OrganizacaoPage({
   const canManageTasks = can(profile, "manage_tasks");
   const canManageShopping = profile.role === "admin";
 
+  let matchingPurchaseIds: string[] | null = null;
+  if (purchaseSearch) {
+    const { data: matchingItems } = await supabase
+      .from("shopping_items")
+      .select("purchase_id")
+      .eq("household_id", profile.household_id)
+      .eq("status", "bought")
+      .not("purchase_id", "is", null)
+      .ilike("name", `%${purchaseSearch}%`);
+    matchingPurchaseIds = Array.from(
+      new Set(
+        (matchingItems ?? [])
+          .map((item) => item.purchase_id)
+          .filter((purchaseId): purchaseId is string => Boolean(purchaseId)),
+      ),
+    );
+  }
+
+  const purchaseQuery = supabase
+    .from("shopping_purchases")
+    .select(
+      "id,purchase_scope,split_mode,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,category,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
+      { count: "exact" },
+    )
+    .eq("household_id", profile.household_id);
+  if (matchingPurchaseIds) {
+    if (matchingPurchaseIds.length > 0) {
+      purchaseQuery.in("id", matchingPurchaseIds);
+    } else {
+      purchaseQuery.eq("id", NO_PURCHASE_ID);
+    }
+  }
+  purchaseQuery
+    .order("bought_at", { ascending: false })
+    .range(purchaseFrom, purchaseTo);
+
+  const legacyPurchaseQuery = supabase
+    .from("shopping_items")
+    .select("id,name,quantity_bought,unit_price")
+    .eq("household_id", profile.household_id)
+    .eq("status", "bought")
+    .is("purchase_id", null);
+  if (purchaseSearch) {
+    legacyPurchaseQuery.ilike("name", `%${purchaseSearch}%`);
+  }
+  legacyPurchaseQuery.order("bought_at", { ascending: false });
+
   const [
     { data: members },
     { data: tasks },
@@ -49,6 +109,7 @@ export default async function OrganizacaoPage({
     { data: purchases, count: purchaseCount },
     { data: legacyBought },
     { data: purchaseTotals },
+    { data: legacyTotals },
   ] = await Promise.all([
       supabase
         .from("household_members")
@@ -67,31 +128,23 @@ export default async function OrganizacaoPage({
       supabase
         .from("shopping_items")
         .select(
-          "id,name,note,category,status,quantity_planned,created_at",
+          "id,name,note,category,status,quantity_planned,unit_price,created_at",
         )
         .eq("household_id", profile.household_id)
         .in("status", ["list", "checked"])
         .order("created_at", { ascending: false }),
-      supabase
-        .from("shopping_purchases")
-        .select(
-          "id,purchase_scope,split_mode,total_amount,bought_at,paid_by_member_id,paid_by:household_members!shopping_purchases_paid_by_member_id_fkey(id,name,pix_key),items:shopping_items(id,name,category,quantity_bought,unit_price),shopping_purchase_shares(id,member_id,amount,payment_status,paid_at,receipt_path,receipt_name,receipt_uploaded_at,member:household_members(id,name))",
-          { count: "exact" },
-        )
-        .eq("household_id", profile.household_id)
-        .order("bought_at", { ascending: false })
-        .range(purchaseFrom, purchaseTo),
-      supabase
-        .from("shopping_items")
-        .select("id,name,quantity_bought,unit_price")
-        .eq("household_id", profile.household_id)
-        .eq("status", "bought")
-        .is("purchase_id", null)
-        .order("bought_at", { ascending: false }),
+      purchaseQuery,
+      legacyPurchaseQuery,
       supabase
         .from("shopping_purchases")
         .select("total_amount")
         .eq("household_id", profile.household_id),
+      supabase
+        .from("shopping_items")
+        .select("quantity_bought,unit_price")
+        .eq("household_id", profile.household_id)
+        .eq("status", "bought")
+        .is("purchase_id", null),
     ]);
 
   const openTasks = (tasks ?? []).filter((t) =>
@@ -111,14 +164,12 @@ export default async function OrganizacaoPage({
     Math.ceil((purchaseCount ?? 0) / PURCHASES_PER_PAGE),
   );
   if (purchasePage > totalPurchasePages) {
-    redirect(
-      `${baseRoute}?compras_page=${totalPurchasePages}#historico-compras`,
-    );
+    redirect(purchaseHistoryHref(totalPurchasePages, purchaseSearch));
   }
   const totalSpent = (purchaseTotals ?? []).reduce(
     (sum, purchase) => sum + Number(purchase.total_amount),
     0,
-  ) + (legacyBought ?? []).reduce(
+  ) + (legacyTotals ?? []).reduce(
     (sum, item) => sum + Number(item.quantity_bought ?? 0) * Number(item.unit_price ?? 0),
     0,
   );
@@ -127,12 +178,15 @@ export default async function OrganizacaoPage({
     <>
       <div className="page-head">
         <div>
-          <span className="eyebrow">Organização</span>
-          <h1>Pendências e lista de compras</h1>
+          <span className="eyebrow">Compras</span>
+          <h1>Compras da casa</h1>
           <p>
-            Delegue o que precisa ser resolvido na casa (fora da rotina de
-            limpeza) e organize as compras do mercado.
+            Organize a lista do mercado, informe valores previstos e registre
+            quem pagou cada compra.
           </p>
+        </div>
+        <div className="role-chip">
+          <CartIcon /> Lista da casa
         </div>
       </div>
 
@@ -267,20 +321,53 @@ export default async function OrganizacaoPage({
             category: item.category,
             status: item.status as "list" | "checked",
             quantity_planned: item.quantity_planned,
+            unit_price: item.unit_price,
           }))}
           members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
           canManage={canManageShopping}
           redirectTo={baseRoute}
         />
 
-        <div id="historico-compras" style={{ padding: "0 20px 8px" }}>
-          <h4 style={{ margin: "8px 0" }}>
-            Compras registradas ({(purchaseCount ?? 0) + (legacyBought?.length ?? 0)})
-          </h4>
+        <div id="historico-compras" className="purchase-history-head">
+          <div>
+            <h4>
+              Compras registradas ({(purchaseCount ?? 0) + (legacyBought?.length ?? 0)})
+            </h4>
+            <span className="muted-text">
+              A busca consulta somente itens de compras já registradas.
+            </span>
+          </div>
+          <form
+            action={`${baseRoute}#historico-compras`}
+            className="purchase-history-search"
+            method="get"
+          >
+            <label className="field">
+              Buscar item registrado
+              <input
+                type="search"
+                name="compras_busca"
+                defaultValue={purchaseSearch}
+                placeholder="Ex.: galão de água"
+              />
+            </label>
+            <button className="button secondary small" type="submit">
+              Buscar
+            </button>
+            {purchaseSearch && (
+              <Link className="button ghost small" href={`${baseRoute}#historico-compras`}>
+                Limpar
+              </Link>
+            )}
+          </form>
         </div>
         <div className="purchase-list">
           {purchasesOnPage.length === 0 && legacyPurchases.length === 0 && (
-            <div className="empty">Nenhuma compra registrada ainda.</div>
+            <div className="empty">
+              {purchaseSearch
+                ? `Nenhum item registrado encontrado para “${purchaseSearch}”.`
+                : "Nenhuma compra registrada ainda."}
+            </div>
           )}
           {purchasesOnPage.map((purchase) => {
             const paidBy = Array.isArray(purchase.paid_by) ? purchase.paid_by[0] : purchase.paid_by;
@@ -431,7 +518,7 @@ export default async function OrganizacaoPage({
             {purchasePage > 1 ? (
               <Link
                 className="button ghost small"
-                href={`${baseRoute}?compras_page=${purchasePage - 1}#historico-compras`}
+                href={purchaseHistoryHref(purchasePage - 1, purchaseSearch)}
               >
                 Anterior
               </Link>
@@ -446,7 +533,7 @@ export default async function OrganizacaoPage({
             {purchasePage < totalPurchasePages ? (
               <Link
                 className="button ghost small"
-                href={`${baseRoute}?compras_page=${purchasePage + 1}#historico-compras`}
+                href={purchaseHistoryHref(purchasePage + 1, purchaseSearch)}
               >
                 Próxima
               </Link>

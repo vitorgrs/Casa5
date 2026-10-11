@@ -498,7 +498,7 @@ export default async function MyPage({
             <span className="metric-icon"><ChecklistIcon /></span>
           </div>
           <strong className="metric-value">{casaTasks.length + geralTasks.length}</strong>
-          <span className="metric-foot">no calendário e na organização</span>
+          <span className="metric-foot">no calendário e em Compras</span>
         </div>
       </div>
 
@@ -959,7 +959,7 @@ export default async function MyPage({
             <div>
               <h2>Suas pendências gerais</h2>
               <span className="muted-text" style={{ fontSize: 10 }}>
-                Tarefas delegadas a você na Organização (inclui pedidos de reembolso).
+                Tarefas delegadas a você em Compras (inclui pedidos de reembolso).
               </span>
             </div>
             <UsersIcon />
@@ -986,7 +986,7 @@ export default async function MyPage({
           </div>
           <div style={{ padding: "0 20px 16px" }}>
             <Link className="button ghost small" href="/app/organizacao">
-              Ver organização completa
+              Ver página de Compras
             </Link>
           </div>
         </section>

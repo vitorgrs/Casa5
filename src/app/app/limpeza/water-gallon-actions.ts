@@ -8,6 +8,7 @@ import type { FormActionState } from "@/lib/form-action-state";
 
 function refreshWaterGallonPages() {
   revalidatePath("/app/limpeza");
+  revalidatePath("/app/limpeza/agua");
   revalidatePath("/app");
 }
 

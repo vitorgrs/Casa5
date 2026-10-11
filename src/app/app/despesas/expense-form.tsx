@@ -346,7 +346,7 @@ export function ExpenseForm({
               </label>
               <p className="note span-2" style={{ margin: 0, alignSelf: "center" }}>
                 Ao salvar, uma tarefa &quot;Pedir reembolso&quot; é criada
-                automaticamente na página de Organização, e cada morador verá
+                automaticamente na página de Compras, e cada morador verá
                 que tem um reembolso pendente até você marcar como pago.
               </p>
             </div>

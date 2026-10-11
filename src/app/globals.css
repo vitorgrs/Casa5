@@ -558,12 +558,19 @@ textarea {
   gap: 10px;
 }
 .role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.035);
   padding: 8px 12px;
   border-radius: 999px;
   color: var(--muted);
   font-size: 10px;
+}
+.role-chip svg {
+  width: 15px;
+  height: 15px;
 }
 .notification-button {
   position: relative;
@@ -1561,14 +1568,9 @@ textarea {
 
 /* Rateio e cobrança das compras */
 .shopping-toolbar {
-  display: grid;
-  grid-template-columns: minmax(240px, 1fr) auto;
-  align-items: end;
-  gap: 14px;
+  display: flex;
+  justify-content: flex-end;
   padding: 0 20px 14px;
-}
-.shopping-search input {
-  min-width: 0;
 }
 .shopping-selection-count {
   display: flex;
@@ -1718,6 +1720,25 @@ textarea {
   display: grid;
   gap: 12px;
   padding: 0 20px 20px;
+}
+.purchase-history-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px 20px 12px;
+  border-top: 1px solid var(--line);
+}
+.purchase-history-head h4 {
+  margin: 0 0 4px;
+}
+.purchase-history-search {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.purchase-history-search .field {
+  min-width: min(320px, 42vw);
 }
 .purchase-card {
   overflow: hidden;
@@ -3281,13 +3302,20 @@ textarea {
   }
   .purchase-scope-grid,
   .purchase-payer,
-  .shopping-toolbar,
   .shopping-inline-editor form,
   .purchase-item-value-row,
   .netting-explanation,
   .admin-settlement-payment-options,
   .admin-direct-payment-form {
     grid-template-columns: 1fr;
+  }
+  .purchase-history-head,
+  .purchase-history-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .purchase-history-search .field {
+    min-width: 0;
   }
   .settlement-details-modal {
     width: calc(100vw - 24px) !important;
@@ -4130,6 +4158,127 @@ body,
   .file-input-label {
     max-width: 100%;
     flex: 1 1 190px;
+  }
+}
+
+.casa-em-dia-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: -8px 0 20px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.casa-em-dia-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: 150ms ease;
+}
+
+.casa-em-dia-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.casa-em-dia-tab.active {
+  color: var(--text);
+  border-color: var(--line);
+  background: rgba(139, 92, 246, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.08);
+}
+
+.casa-em-dia-tab svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.home-status-section {
+  margin-top: 16px;
+}
+
+.home-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 20px 20px;
+}
+
+.home-status-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.home-status-title,
+.home-status-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-status-title > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.home-status-title > div > span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.home-status-title small,
+.home-status-meta {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.home-status-person {
+  margin-top: 18px;
+}
+
+.home-status-person strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.home-status-meta {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 900px) {
+  .home-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .casa-em-dia-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .casa-em-dia-tab {
+    justify-content: flex-start;
   }
 }
 

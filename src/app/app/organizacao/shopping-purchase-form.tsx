@@ -1,9 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { FormActionMessage } from "@/components/form-action-message";
 import { PlusIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
+import { currency } from "@/lib/format";
 import { initialFormActionState, type FormActionState } from "@/lib/form-action-state";
 import {
   addShoppingItem,
@@ -27,12 +29,68 @@ type ShoppingItem = {
   category: string | null;
   status: "list" | "checked";
   quantity_planned: number | string | null;
+  unit_price: number | string | null;
 };
 
 type PurchaseScope = "household" | "group" | "individual";
 type SplitMode = "equal" | "custom";
 
 const PURCHASE_CLIENT_TIMEOUT_MS = 20_000;
+const PURCHASE_MUTATION_CLIENT_TIMEOUT_MS = 20_000;
+
+type ShoppingMutationAction = (
+  previousState: FormActionState,
+  formData: FormData,
+) => Promise<FormActionState>;
+
+async function runShoppingMutationWithTimeout(
+  action: ShoppingMutationAction,
+  previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<FormActionState>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        status: "error",
+        message: "A ação não respondeu a tempo. O histórico será atualizado automaticamente para conferir se ela foi concluída.",
+      });
+    }, PURCHASE_MUTATION_CLIENT_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([action(previousState, formData), timeout]);
+  } catch {
+    return {
+      status: "error",
+      message: "Não foi possível concluir a ação. O histórico será atualizado automaticamente para conferir o estado da compra.",
+    };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function removeShoppingItemWithTimeout(
+  previousState: FormActionState,
+  formData: FormData,
+) {
+  return runShoppingMutationWithTimeout(
+    removeItemFromShoppingPurchase,
+    previousState,
+    formData,
+  );
+}
+
+function resetShoppingPurchaseWithTimeout(
+  previousState: FormActionState,
+  formData: FormData,
+) {
+  return runShoppingMutationWithTimeout(
+    resetShoppingPurchase,
+    previousState,
+    formData,
+  );
+}
 
 async function recordShoppingPurchaseWithTimeout(
   previousState: FormActionState,
@@ -99,10 +157,14 @@ export function ShoppingItemCreateForm({ redirectTo }: { redirectTo: string }) {
         <input name="quantity_planned" inputMode="decimal" placeholder="Ex.: 2" />
       </label>
       <label className="field">
+        Valor unitário previsto
+        <input name="unit_price" inputMode="decimal" placeholder="Ex.: 12,50" />
+      </label>
+      <label className="field">
         Categoria
         <input name="category" placeholder="Ex.: Mercearia" />
       </label>
-      <label className="field span-3">
+      <label className="field span-2">
         Observação
         <input name="note" placeholder="Opcional" />
       </label>
@@ -129,7 +191,6 @@ export function ShoppingListManager({
   canManage: boolean;
   redirectTo: string;
 }) {
-  const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -139,16 +200,6 @@ export function ShoppingListManager({
       return next.length === current.length ? current : next;
     });
   }, [items]);
-
-  const visibleItems = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase("pt-BR");
-    if (!term) return items;
-    return items.filter((item) =>
-      [item.name, item.category, item.note]
-        .filter(Boolean)
-        .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(term)),
-    );
-  }, [items, search]);
 
   const selectedItems = items.filter((item) => selectedIds.includes(item.id));
 
@@ -161,15 +212,6 @@ export function ShoppingListManager({
   return (
     <>
       <div className="shopping-toolbar">
-        <label className="field shopping-search">
-          Buscar na lista
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Digite o nome, categoria ou observação"
-          />
-        </label>
         <div className="shopping-selection-count">
           <strong>{selectedIds.length}</strong>
           <span>item(ns) selecionado(s)</span>
@@ -177,8 +219,8 @@ export function ShoppingListManager({
       </div>
 
       <div className="shopping-select-list">
-        {visibleItems.length === 0 && <div className="empty">Nenhum item encontrado.</div>}
-        {visibleItems.map((item) => (
+        {items.length === 0 && <div className="empty">Nenhum item na lista.</div>}
+        {items.map((item) => (
           <article className={`shopping-select-row ${selectedIds.includes(item.id) ? "selected" : ""}`} key={item.id}>
             <label className="shopping-select-main">
               <input
@@ -192,6 +234,9 @@ export function ShoppingListManager({
                 <small>
                   {item.quantity_planned ? `${item.quantity_planned} planejado(s) • ` : ""}
                   {item.category ?? "Sem categoria"}
+                  {item.unit_price !== null
+                    ? ` • ${currency.format(Number(item.unit_price))} por unidade`
+                    : " • valor a definir"}
                 </small>
               </span>
             </label>
@@ -285,6 +330,15 @@ function ShoppingItemEditForm({
           defaultValue={item.quantity_planned ?? ""}
         />
       </label>
+      <label>
+        Valor unitário previsto
+        <input
+          name="unit_price"
+          inputMode="decimal"
+          defaultValue={item.unit_price ?? ""}
+          placeholder="0,00"
+        />
+      </label>
       <SubmitButton className="button secondary small" pendingLabel="Salvando...">
         Salvar
       </SubmitButton>
@@ -338,7 +392,11 @@ function PurchaseCheckoutForm({
   const [quantities, setQuantities] = useState<Record<string, string>>(() =>
     Object.fromEntries(items.map((item) => [item.id, String(item.quantity_planned ?? 1)])),
   );
-  const [unitPrices, setUnitPrices] = useState<Record<string, string>>({});
+  const [unitPrices, setUnitPrices] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      items.map((item) => [item.id, String(item.unit_price ?? "")]),
+    ),
+  );
   const [customShares, setCustomShares] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -351,7 +409,12 @@ function PurchaseCheckoutForm({
       ),
     );
     setUnitPrices((current) =>
-      Object.fromEntries(items.map((item) => [item.id, current[item.id] ?? ""])),
+      Object.fromEntries(
+        items.map((item) => [
+          item.id,
+          current[item.id] ?? String(item.unit_price ?? ""),
+        ]),
+      ),
     );
   }, [items]);
 
@@ -605,8 +668,15 @@ export function ShoppingPurchaseMutationForm({
   itemId?: string;
   redirectTo: string;
 }) {
-  const action = mode === "remove-item" ? removeItemFromShoppingPurchase : resetShoppingPurchase;
+  const router = useRouter();
+  const action = mode === "remove-item"
+    ? removeShoppingItemWithTimeout
+    : resetShoppingPurchaseWithTimeout;
   const [state, formAction] = useActionState(action, initialFormActionState);
+
+  useEffect(() => {
+    if (state.status !== "idle") router.refresh();
+  }, [router, state]);
 
   return (
     <form action={formAction} className="purchase-mutation-form">

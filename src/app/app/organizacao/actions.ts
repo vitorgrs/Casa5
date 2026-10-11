@@ -17,6 +17,7 @@ import {
 import { createServiceClient } from "@/lib/supabase/service";
 
 const SHOPPING_PURCHASE_TIMEOUT_MS = 15_000;
+const SHOPPING_MUTATION_TIMEOUT_MS = 15_000;
 
 function destination(formData: FormData, fallback: string) {
   const value = String(formData.get("redirect_to") ?? "");
@@ -176,10 +177,20 @@ export async function addShoppingItem(
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return { status: "error", message: "Informe o nome do item." };
     const quantityPlanned = decimal(formData.get("quantity_planned"));
+    const unitPriceInput = String(formData.get("unit_price") ?? "").trim();
+    const unitPriceCents = unitPriceInput
+      ? decimalHundredths(formData.get("unit_price"))
+      : null;
     if (quantityPlanned !== null && quantityPlanned <= 0) {
       return {
         status: "error",
         message: "A quantidade planejada precisa ser maior que zero.",
+      };
+    }
+    if (unitPriceInput && (unitPriceCents === null || unitPriceCents < 0)) {
+      return {
+        status: "error",
+        message: "Informe um valor unitário válido.",
       };
     }
     const { error } = await supabase.from("shopping_items").insert({
@@ -188,6 +199,7 @@ export async function addShoppingItem(
       note: String(formData.get("note") ?? "").trim() || null,
       category: String(formData.get("category") ?? "").trim() || null,
       quantity_planned: quantityPlanned,
+      unit_price: unitPriceCents === null ? null : unitPriceCents / 100,
       added_by: profile.id,
     });
     if (error) return { status: "error", message: error.message };
@@ -248,6 +260,10 @@ export async function updateShoppingItem(
     const itemId = String(formData.get("item_id") ?? "");
     const name = String(formData.get("name") ?? "").trim();
     const quantityPlanned = decimal(formData.get("quantity_planned"));
+    const unitPriceInput = String(formData.get("unit_price") ?? "").trim();
+    const unitPriceCents = unitPriceInput
+      ? decimalHundredths(formData.get("unit_price"))
+      : null;
     if (!name) return { status: "error", message: "Informe o nome do item." };
     if (quantityPlanned !== null && quantityPlanned <= 0) {
       return {
@@ -255,10 +271,20 @@ export async function updateShoppingItem(
         message: "A quantidade planejada precisa ser maior que zero.",
       };
     }
+    if (unitPriceInput && (unitPriceCents === null || unitPriceCents < 0)) {
+      return {
+        status: "error",
+        message: "Informe um valor unitário válido.",
+      };
+    }
 
     const { data, error } = await supabase
       .from("shopping_items")
-      .update({ name, quantity_planned: quantityPlanned })
+      .update({
+        name,
+        quantity_planned: quantityPlanned,
+        unit_price: unitPriceCents === null ? null : unitPriceCents / 100,
+      })
       .eq("id", itemId)
       .eq("household_id", profile.household_id)
       .in("status", ["list", "checked"])
@@ -372,6 +398,7 @@ export async function recordShoppingPurchase(
     revalidatePath(pathOf(returnTo));
     revalidatePath("/app/eu");
     revalidatePath("/app/limpeza");
+    revalidatePath("/app/limpeza/agua");
     return { status: "success", message: "Compra registrada com sucesso." };
   } catch (error) {
     unstable_rethrow(error);
@@ -393,15 +420,18 @@ export async function resetShoppingPurchase(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requireAdmin();
+  const signal = AbortSignal.timeout(SHOPPING_MUTATION_TIMEOUT_MS);
   try {
+    const { supabase } = await requireAdmin();
     const purchaseId = String(formData.get("purchase_id") ?? "");
     const { count: pendingReceipts } = await supabase
       .from("shopping_purchase_shares")
       .select("id", { count: "exact", head: true })
       .eq("purchase_id", purchaseId)
       .eq("payment_status", "pending")
-      .not("receipt_path", "is", null);
+      .not("receipt_path", "is", null)
+      .abortSignal(signal);
+    signal.throwIfAborted();
     if ((pendingReceipts ?? 0) > 0) {
       return {
         status: "error",
@@ -410,14 +440,23 @@ export async function resetShoppingPurchase(
     }
     const { error } = await supabase.rpc("reset_shopping_purchase", {
       target_purchase_id: purchaseId,
-    });
+    }).abortSignal(signal);
+    signal.throwIfAborted();
     if (error) return { status: "error", message: error.message };
 
     revalidatePath(pathOf(returnTo));
     revalidatePath("/app/eu");
     revalidatePath("/app/limpeza");
+    revalidatePath("/app/limpeza/agua");
     return { status: "success", message: "Itens devolvidos para a lista." };
   } catch (error) {
+    unstable_rethrow(error);
+    if (signal.aborted) {
+      return {
+        status: "error",
+        message: "A operação demorou além do esperado e foi interrompida. O histórico será sincronizado para conferir o resultado.",
+      };
+    }
     return {
       status: "error",
       message: error instanceof Error ? error.message : "Não foi possível desfazer a compra.",
@@ -430,8 +469,9 @@ export async function removeItemFromShoppingPurchase(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requireAdmin();
+  const signal = AbortSignal.timeout(SHOPPING_MUTATION_TIMEOUT_MS);
   try {
+    const { supabase } = await requireAdmin();
     const purchaseId = String(formData.get("purchase_id") ?? "");
     const itemId = String(formData.get("item_id") ?? "");
     if (!purchaseId || !itemId) {
@@ -441,14 +481,23 @@ export async function removeItemFromShoppingPurchase(
     const { error } = await supabase.rpc("remove_item_from_shopping_purchase", {
       target_purchase_id: purchaseId,
       target_item_id: itemId,
-    });
+    }).abortSignal(signal);
+    signal.throwIfAborted();
     if (error) return { status: "error", message: error.message };
 
     revalidatePath(pathOf(returnTo));
     revalidatePath("/app/eu");
     revalidatePath("/app/limpeza");
+    revalidatePath("/app/limpeza/agua");
     return { status: "success", message: "Item retirado e devolvido para a lista." };
   } catch (error) {
+    unstable_rethrow(error);
+    if (signal.aborted) {
+      return {
+        status: "error",
+        message: "A retirada demorou além do esperado e foi interrompida. O histórico será sincronizado para conferir o resultado.",
+      };
+    }
     return {
       status: "error",
       message: error instanceof Error ? error.message : "Não foi possível retirar o item.",

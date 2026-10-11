@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ArrowIcon, CalendarIcon, LaundryIcon, SettingsIcon } from "@/components/icons";
+import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
+import { CalendarIcon, LaundryIcon, SettingsIcon } from "@/components/icons";
 import { requireActiveProfile } from "@/lib/auth";
 import { addDays, formatHouseDate, isIsoDate, todayIso } from "@/lib/chore-rotation";
 import {
@@ -157,17 +158,16 @@ export default async function LaundryCalendarPage({
             e as lavagens coletivas da casa.
           </p>
         </div>
-        <div className="page-actions">
-          <Link className="button ghost" href="/app/limpeza">
-            <ArrowIcon /> Escala da casa
-          </Link>
-          {profile.role === "admin" && (
+        {profile.role === "admin" && (
+          <div className="page-actions">
             <Link className="button secondary" href="/app/limpeza/lavanderia/configuracoes">
               <SettingsIcon /> Configurar lavanderia
             </Link>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+
+      <CasaEmDiaTabs active="lavanderia" />
 
       {params.success && <div className="message success">{params.success}</div>}
       {params.error && <div className="message error">{params.error}</div>}

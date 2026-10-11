@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { ArrowIcon, CalendarIcon, CheckIcon, ClockIcon, WalletIcon } from "@/components/icons";
+import {
+  ArrowIcon,
+  CalendarIcon,
+  ClockIcon,
+  LaundryIcon,
+  WalletIcon,
+  WaterIcon,
+} from "@/components/icons";
 import { StatusPill } from "@/components/status-pill";
 import { can, requireActiveProfile } from "@/lib/auth";
 import {
@@ -9,9 +16,17 @@ import {
   todayIso,
   type RotationMember,
   type RotationSwap,
-  type StandardDailyTask,
 } from "@/lib/chore-rotation";
 import { asNumber, currency, daysUntil, monthLabel } from "@/lib/format";
+import {
+  laundryAssignmentsForDate,
+  laundryDryingAssignmentsForDate,
+  laundryMemberNames,
+  type LaundryAssignment,
+  type LaundryRotationMember,
+  type LaundryRotationOverride,
+  type LaundryRotationVersion,
+} from "@/lib/laundry-rotation";
 
 type MemberRelation = {
   id: string;
@@ -39,7 +54,10 @@ export default async function DashboardPage() {
     settingsResult,
     rotationResult,
     swapsResult,
-    standardTasksResult,
+    waterSettingsResult,
+    laundryVersionsResult,
+    laundryVersionMembersResult,
+    laundryOverridesResult,
   ] = await Promise.all([
     supabase
       .from("expenses")
@@ -79,12 +97,29 @@ export default async function DashboardPage() {
       .select("requester_member_id,requester_date,target_member_id,target_date,status")
       .eq("household_id", profile.household_id),
     supabase
-      .from("daily_standard_tasks")
-      .select("id,task_key,label,description,display_order,active")
+      .from("water_gallon_rotation_settings")
+      .select("current_member_id,current_since")
       .eq("household_id", profile.household_id)
-      .eq("active", true)
-      .order("display_order")
-      .order("created_at"),
+      .maybeSingle(),
+    supabase
+      .from("laundry_rotation_versions")
+      .select(
+        "id,effective_from,anchor_date,anchor_member_id,gap_days,people_per_day,allow_incomplete_last_group,created_at",
+      )
+      .eq("household_id", profile.household_id)
+      .order("effective_from"),
+    supabase
+      .from("laundry_rotation_version_members")
+      .select(
+        "version_id,member_id,rotation_order,member_name,member_initials,member_color_key",
+      )
+      .eq("household_id", profile.household_id)
+      .order("rotation_order"),
+    supabase
+      .from("laundry_rotation_overrides")
+      .select("wash_date,member_id,resets_rotation,note,created_at")
+      .eq("household_id", profile.household_id)
+      .order("wash_date"),
   ]);
 
   const expenses = expenseResult.data ?? [];
@@ -133,20 +168,81 @@ export default async function DashboardPage() {
     }))
     .sort((first, second) => first.rotation_order - second.rotation_order);
   const swaps = (swapsResult.data ?? []) as RotationSwap[];
-  const upcomingRotation = Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(today, index);
-    return {
+  const todayDuty = rotationMemberForDate(
+    today,
+    settingsResult.data?.start_date ?? null,
+    rotationMembers,
+    swaps,
+  );
+  const waterMember = members.find(
+    (member) => member.id === waterSettingsResult.data?.current_member_id,
+  ) ?? null;
+
+  const knownLaundryMembers: LaundryRotationMember[] = members.map((member) => ({
+    id: member.id,
+    name: member.name,
+    initials: member.initials,
+    color_key: member.color_key,
+    rotation_order: member.display_order,
+  }));
+  const knownLaundryMemberById = new Map(
+    knownLaundryMembers.map((member) => [member.id, member]),
+  );
+  const laundryMembersByVersion = new Map<string, LaundryRotationMember[]>();
+  for (const row of laundryVersionMembersResult.data ?? []) {
+    const fallback = knownLaundryMemberById.get(row.member_id);
+    const versionMembers = laundryMembersByVersion.get(row.version_id) ?? [];
+    versionMembers.push({
+      id: row.member_id,
+      name: row.member_name || fallback?.name || "Morador",
+      initials: row.member_initials || fallback?.initials || "?",
+      color_key: row.member_color_key || fallback?.color_key || "violet",
+      rotation_order: row.rotation_order,
+    });
+    laundryMembersByVersion.set(row.version_id, versionMembers);
+  }
+  const laundryVersions: LaundryRotationVersion[] = (
+    laundryVersionsResult.data ?? []
+  ).map((version) => ({
+    ...version,
+    members: (laundryMembersByVersion.get(version.id) ?? []).sort(
+      (first, second) => first.rotation_order - second.rotation_order,
+    ),
+  }));
+  const laundryOverrides = (
+    laundryOverridesResult.data ?? []
+  ) as LaundryRotationOverride[];
+  const todayLaundry = laundryAssignmentsForDate(
+    today,
+    laundryVersions,
+    laundryOverrides,
+    knownLaundryMembers,
+  );
+  const currentDrying = laundryDryingAssignmentsForDate(
+    today,
+    laundryVersions,
+    laundryOverrides,
+    knownLaundryMembers,
+  )[0] ?? null;
+  let nextLaundry: { date: string; assignment: LaundryAssignment } | null = null;
+  for (let offset = todayLaundry ? 1 : 0; offset <= 370; offset += 1) {
+    const date = addDays(today, offset);
+    const assignment = laundryAssignmentsForDate(
       date,
-      member: rotationMemberForDate(
-        date,
-        settingsResult.data?.start_date ?? null,
-        rotationMembers,
-        swaps,
-      ),
-    };
-  }).filter((row): row is { date: string; member: RotationMember } => Boolean(row.member));
-  const nextDuty = upcomingRotation[0] ?? null;
-  const standardTasks = (standardTasksResult.data ?? []) as StandardDailyTask[];
+      laundryVersions,
+      laundryOverrides,
+      knownLaundryMembers,
+    );
+    if (assignment) {
+      nextLaundry = { date, assignment };
+      break;
+    }
+  }
+  const dryingGapDays =
+    todayLaundry?.version?.gap_days ?? currentDrying?.version?.gap_days ?? 0;
+  const dryingDaysAfterToday = currentDrying
+    ? Math.max(0, dryingGapDays - currentDrying.dryingDay)
+    : 0;
 
   return (
     <>
@@ -154,12 +250,12 @@ export default async function DashboardPage() {
         <div>
           <span className="eyebrow">Visão geral • {monthLabel.format(monthDate)}</span>
           <h1>Bom dia, {profile.full_name.split(" ")[0]}.</h1>
-          <p>Acompanhe o que vence, o que já entrou e a escala diária do apartamento.</p>
+          <p>Acompanhe o que vence, o que já entrou e quem cuida da rotina da casa hoje.</p>
         </div>
         <div className="page-actions">
           <Link className="button ghost" href="/app/eu">Minha página</Link>
           <Link className="button secondary" href="/app/limpeza">
-            <CalendarIcon /> Ver escala
+            <CalendarIcon /> Casa em dia
           </Link>
           {can(profile, "manage_expenses") && (
             <Link className="button primary" href={`/app/despesas?month=${referenceMonth.slice(0, 7)}&novo=1`}>
@@ -277,69 +373,144 @@ export default async function DashboardPage() {
             </div>
           </section>
 
-          <section className="card pad next-duty-card">
-            <div className="metric-top"><span>Próximo responsável</span><CalendarIcon /></div>
-            {nextDuty ? (
-              <div className="next-duty-person">
-                <div className={`avatar avatar-${nextDuty.member.color_key}`}>{nextDuty.member.initials}</div>
-                <div>
-                  <strong>{nextDuty.member.name}</strong>
-                  <small>{nextDuty.date === today ? "hoje" : formatHouseDate(nextDuty.date)}</small>
+        </div>
+      </div>
+
+      <section className="card home-status-section">
+        <div className="card-head">
+          <div>
+            <h2>Casa em dia hoje</h2>
+            <span className="muted-text">Somente o estado atual de cada rodízio.</span>
+          </div>
+          <Link href="/app/limpeza" className="button ghost small">
+            Abrir Casa em dia <ArrowIcon />
+          </Link>
+        </div>
+
+        <div className="home-status-grid">
+          <article className="home-status-card">
+            <div className="home-status-title">
+              <span className="metric-icon"><CalendarIcon /></span>
+              <div>
+                <span>Tarefas do dia</span>
+                <small>Responsável de hoje</small>
+              </div>
+            </div>
+            {todayDuty ? (
+              <div className="home-status-person">
+                <div className={`avatar avatar-${todayDuty.color_key}`}>
+                  {todayDuty.initials}
                 </div>
+                <strong>{todayDuty.name}</strong>
               </div>
             ) : (
               <div className="empty">A escala ainda não foi configurada.</div>
             )}
-          </section>
-        </div>
-      </div>
+          </article>
 
-      <div className="dashboard-grid">
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Próximos dias da escala</h2>
-              <span className="muted-text">Um responsável por dia, em ordem contínua.</span>
+          <article className="home-status-card">
+            <div className="home-status-title">
+              <span className="metric-icon"><LaundryIcon /></span>
+              <div>
+                <span>Lavanderia</span>
+                <small>
+                  {todayLaundry
+                    ? "Lavagem de hoje"
+                    : currentDrying
+                      ? "Em período de secagem"
+                      : "Próxima lavagem"}
+                </small>
+              </div>
             </div>
-            <Link href="/app/limpeza" className="button ghost small">Abrir calendário <ArrowIcon /></Link>
-          </div>
-          <div className="list">
-            {upcomingRotation.map((row) => (
-              <div className="list-row" key={row.date}>
-                <div className="item-title">
-                  <strong>{row.date === today ? "Hoje" : formatHouseDate(row.date, { weekday: "long", day: "2-digit", month: "long" })}</strong>
-                  <small>Responsável pelas tarefas padrão</small>
+            {todayLaundry ? (
+              <>
+                <div className="home-status-person">
+                  <div className="laundry-avatar-stack">
+                    {todayLaundry.members.map((member) => (
+                      <div className={`avatar avatar-${member.color_key}`} key={member.id}>
+                        {member.initials}
+                      </div>
+                    ))}
+                  </div>
+                  <strong>{laundryMemberNames(todayLaundry.members, true)}</strong>
                 </div>
-                <div className="leader-person">
-                  <div className={`avatar avatar-${row.member.color_key}`}>{row.member.initials}</div>
-                  <strong>{row.member.name}</strong>
+                <p className="home-status-meta">
+                  {dryingGapDays > 0
+                    ? `${dryingGapDays} dia(s) de secagem a partir de amanhã; o dia da lavagem não entra na conta.`
+                    : "Sem intervalo de secagem configurado."}
+                </p>
+              </>
+            ) : currentDrying ? (
+              <>
+                <div className="home-status-person">
+                  <div className="laundry-avatar-stack">
+                    {currentDrying.members.map((member) => (
+                      <div className={`avatar avatar-${member.color_key}`} key={member.id}>
+                        {member.initials}
+                      </div>
+                    ))}
+                  </div>
+                  <strong>{laundryMemberNames(currentDrying.members, true)}</strong>
                 </div>
-              </div>
-            ))}
-            {upcomingRotation.length === 0 && <div className="empty">A escala ainda não começou.</div>}
-          </div>
-        </section>
-
-        <section className="card pad">
-          <div className="card-head" style={{ padding: 0, paddingBottom: 15, marginBottom: 15 }}>
-            <h3>Tarefas de todos os dias</h3><CheckIcon />
-          </div>
-          <div className="daily-summary-list">
-            {standardTasks.map((task) => (
-              <div key={task.task_key}>
-                <span className="daily-task-check completed"><CheckIcon /></span>
-                <span>
-                  <strong>{task.label}</strong>
-                  {task.description && <small>{task.description}</small>}
-                </span>
-              </div>
-            ))}
-            {standardTasks.length === 0 && (
-              <div className="empty">Nenhuma tarefa padrão ativa.</div>
+                <p className="home-status-meta">
+                  Dia {currentDrying.dryingDay} de {dryingGapDays} da secagem. {" "}
+                  {dryingDaysAfterToday === 0
+                    ? "A secagem termina hoje."
+                    : `Ainda ${dryingDaysAfterToday === 1 ? "resta 1 dia" : `restam ${dryingDaysAfterToday} dias`} depois de hoje.`}
+                  {nextLaundry
+                    ? ` Próxima lavagem: ${laundryMemberNames(nextLaundry.assignment.members, true)} em ${formatHouseDate(nextLaundry.date)}.`
+                    : ""}
+                </p>
+              </>
+            ) : nextLaundry ? (
+              <>
+                <div className="home-status-person">
+                  <div className="laundry-avatar-stack">
+                    {nextLaundry.assignment.members.map((member) => (
+                      <div className={`avatar avatar-${member.color_key}`} key={member.id}>
+                        {member.initials}
+                      </div>
+                    ))}
+                  </div>
+                  <strong>{laundryMemberNames(nextLaundry.assignment.members, true)}</strong>
+                </div>
+                <p className="home-status-meta">
+                  Próxima lavagem em {formatHouseDate(nextLaundry.date)}.
+                </p>
+              </>
+            ) : (
+              <div className="empty">O rodízio da lavanderia ainda não foi configurado.</div>
             )}
-          </div>
-        </section>
-      </div>
+          </article>
+
+          <article className="home-status-card">
+            <div className="home-status-title">
+              <span className="metric-icon"><WaterIcon /></span>
+              <div>
+                <span>Galão de água</span>
+                <small>Pessoa da vez para pagar</small>
+              </div>
+            </div>
+            {waterMember ? (
+              <>
+                <div className="home-status-person">
+                  <div className={`avatar avatar-${waterMember.color_key}`}>
+                    {waterMember.initials}
+                  </div>
+                  <strong>{waterMember.name}</strong>
+                </div>
+                {waterSettingsResult.data?.current_since && (
+                  <p className="home-status-meta">
+                    Na vez desde {formatHouseDate(waterSettingsResult.data.current_since)}.
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="empty">O rodízio do galão ainda não foi configurado.</div>
+            )}
+          </article>
+        </div>
+      </section>
     </>
   );
 }

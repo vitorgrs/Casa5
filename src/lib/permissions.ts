@@ -18,8 +18,8 @@ export const PERMISSION_CATALOG: { key: PermissionKey; label: string; descriptio
   },
   {
     key: "manage_tasks",
-    label: "Gerenciar organização e calendário",
-    description: "Criar, editar e apagar tarefas do calendário e da página de organização (pendências gerais).",
+    label: "Gerenciar compras e calendário",
+    description: "Criar, editar e apagar tarefas do calendário e da página de Compras (pendências gerais).",
   },
   {
     key: "manage_members",
