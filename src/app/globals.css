@@ -4163,7 +4163,7 @@ body,
 
 .casa-em-dia-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   margin: -8px 0 20px;
   padding: 6px;
@@ -4270,6 +4270,10 @@ body,
   .home-status-grid {
     grid-template-columns: 1fr;
   }
+
+  .casa-em-dia-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -4325,4 +4329,389 @@ body,
 .app-error-card h1 {
   margin: 10px 0;
   font-size: clamp(24px, 5vw, 34px);
+}
+
+.stove-cleaning-card {
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.stove-cleaning-head > svg {
+  color: var(--yellow);
+}
+
+.stove-cleaning-body {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.stove-load-error,
+.stove-configuration-note {
+  margin: 0;
+}
+
+.stove-current-turn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 98px;
+  padding: 17px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(251, 191, 36, 0.14), transparent 44%),
+    var(--panel-2);
+}
+
+.stove-current-turn > .avatar {
+  width: 54px;
+  height: 54px;
+  min-width: 54px;
+  font-size: 14px;
+}
+
+.stove-current-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.stove-current-copy > span,
+.stove-current-copy > small,
+.stove-next-turn > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stove-current-copy > strong {
+  font-size: 21px;
+  letter-spacing: -0.03em;
+}
+
+.stove-next-turn {
+  display: grid;
+  gap: 7px;
+  min-width: 160px;
+  padding: 10px 12px;
+  border-left: 1px solid var(--line);
+}
+
+.stove-next-turn > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stove-next-turn .avatar {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  font-size: 8px;
+}
+
+.stove-next-turn strong {
+  font-size: 12px;
+}
+
+.stove-confirm-form {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 15px;
+  border: 1px dashed rgba(52, 211, 153, 0.35);
+  border-radius: 13px;
+  background: rgba(52, 211, 153, 0.035);
+}
+
+.stove-confirm-copy {
+  display: grid;
+  align-self: center;
+  gap: 4px;
+}
+
+.stove-confirm-copy strong {
+  font-size: 12px;
+}
+
+.stove-confirm-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.stove-confirm-form > .inline-action-message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.stove-confirm-form > .button {
+  min-height: 44px;
+}
+
+.stove-rotation-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.stove-rotation-person {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 11px 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+
+.stove-rotation-person > span {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.stove-rotation-person .avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 9px;
+}
+
+.stove-rotation-person strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.stove-rotation-person.current {
+  border-color: rgba(251, 191, 36, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.08);
+}
+
+.stove-rotation-person.current::after {
+  content: "vez atual";
+  color: var(--yellow);
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.stove-cleaning-settings {
+  margin: 0;
+}
+
+.stove-cleaning-settings > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stove-cleaning-settings > summary svg {
+  width: 16px;
+  height: 16px;
+}
+
+.stove-cleaning-settings-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 18px;
+}
+
+.stove-cleaning-settings-body .inline-action-message {
+  margin: 0;
+}
+
+.stove-cleaning-settings .rotation-order-actions .icon-button {
+  width: 44px;
+  height: 44px;
+}
+
+.stove-remove-member {
+  color: var(--red);
+}
+
+.stove-editor-empty {
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+}
+
+.stove-available-members {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.stove-available-members > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.stove-available-members > div:first-child > strong {
+  font-size: 12px;
+}
+
+.stove-available-members > div:first-child > small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.stove-available-member-list {
+  display: grid;
+  gap: 7px;
+}
+
+.stove-available-member {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.stove-available-member .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 9px;
+}
+
+.stove-available-member > strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.stove-available-member > .button {
+  min-height: 44px;
+}
+
+.stove-minimum-members {
+  margin: 0;
+}
+
+.stove-change-turn-form {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+
+.stove-cleaning-history {
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+
+.stove-cleaning-history > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.stove-cleaning-history-list {
+  display: grid;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.stove-cleaning-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.stove-cleaning-history-row:last-child {
+  border-bottom: 0;
+}
+
+.stove-cleaning-history-row > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.stove-cleaning-history-row strong {
+  font-size: 11px;
+}
+
+.stove-cleaning-history-row small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+@media (max-width: 720px) {
+  .stove-cleaning-body {
+    padding: 14px;
+  }
+
+  .stove-current-turn,
+  .stove-confirm-form,
+  .stove-cleaning-settings-body,
+  .stove-cleaning-history-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stove-current-turn {
+    justify-items: start;
+  }
+
+  .stove-next-turn {
+    width: 100%;
+    padding: 12px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .stove-rotation-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stove-rotation-person.current {
+    grid-column: span 2;
+  }
+
+  .stove-change-turn-form {
+    padding-top: 18px;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .stove-cleaning-history-row .item-value {
+    text-align: left;
+  }
+}
+
+@media (max-width: 520px) {
+  .stove-cleaning-settings .rotation-order-row {
+    grid-template-columns: 28px 34px minmax(0, 1fr);
+  }
+
+  .stove-cleaning-settings .rotation-order-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  .stove-available-member {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .stove-available-member > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
 }
