@@ -3,15 +3,47 @@ import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
 import { emailConfigured, emailProviderName } from "@/lib/email";
-import { asNumber, currency } from "@/lib/format";
+import {
+  asNumber,
+  currency,
+  formatHouseDateTime,
+  formatHouseTimestamp,
+} from "@/lib/format";
 import {
   addManualBalance,
+  cleanOrphanReceipts,
   sendDailyEmailsNow,
   sendOpenSettlementsNow,
   sendRemindersNow,
   syncMercadoPago,
   updateReminderSettings,
 } from "./actions";
+
+// Cotas do plano gratuito do Supabase por projeto. Mantidas aqui só como
+// referência visual: o Supabase não expõe a cota do plano pela API.
+const FREE_PLAN_DATABASE_BYTES = 500 * 1024 * 1024;
+const FREE_PLAN_STORAGE_BYTES = 1024 * 1024 * 1024;
+
+type StorageUsageSummary = {
+  database_bytes: number;
+  bucket_bytes: number;
+  bucket_objects: number;
+  orphan_bytes: number;
+  orphan_objects: number;
+};
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2).replace(".", ",")} GB`;
+}
+
+function usagePercent(used: number, quota: number) {
+  return Math.min(100, Math.max(0, Math.round((used / quota) * 100)));
+}
 
 function ageLabel(value: string) {
   const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
@@ -63,6 +95,11 @@ export default async function SettingsPage({
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const { data: storageUsageData, error: storageUsageError } =
+    profile.role === "admin"
+      ? await supabase.rpc("storage_usage_summary")
+      : { data: null, error: null };
+  const storageUsage = storageUsageData as StorageUsageSummary | null;
   const emailReady = emailConfigured();
   const emailProvider = emailProviderName();
 
@@ -108,8 +145,8 @@ export default async function SettingsPage({
             <div className="wallet-meta">
               {latest
                 ? latest.source === "mercado_pago"
-                  ? `Saldo referente a ${new Date(latest.observed_at).toLocaleString("pt-BR")} (${ageLabel(latest.observed_at)}) • importado em ${new Date(latest.created_at).toLocaleString("pt-BR")}`
-                  : `Saldo informado manualmente em ${new Date(latest.observed_at).toLocaleString("pt-BR")}`
+                  ? `Saldo referente a ${formatHouseDateTime(latest.observed_at)} (${ageLabel(latest.observed_at)}) • importado em ${formatHouseDateTime(latest.created_at)}`
+                  : `Saldo informado manualmente em ${formatHouseDateTime(latest.observed_at)}`
                 : "Configure o token e solicite a primeira sincronização."}
             </div>
             {profile.role === "admin" && (
@@ -156,9 +193,7 @@ export default async function SettingsPage({
                   </div>
                   <div className="item-value">
                     <strong>
-                      {new Date(snapshot.observed_at).toLocaleDateString(
-                        "pt-BR",
-                      )}
+                      {formatHouseTimestamp(snapshot.observed_at)}
                     </strong>
                     <small>
                       {snapshot.source === "mercado_pago"
@@ -263,7 +298,7 @@ export default async function SettingsPage({
             </div>
             {lastRun ? (
               <div className="message info">
-                Última execução: {new Date(lastRun.created_at).toLocaleString("pt-BR")}
+                Última execução: {formatHouseDateTime(lastRun.created_at)}
                 <br />
                 Lembretes: {(lastRun.metadata as { reminders?: string })?.reminders ?? "—"}
                 <br />
@@ -280,7 +315,7 @@ export default async function SettingsPage({
             )}
             {lastMorningRun ? (
               <div className="message info" style={{ marginTop: 10 }}>
-                Último cron de e-mails: {new Date(lastMorningRun.created_at).toLocaleString("pt-BR")}
+                Último cron de e-mails: {formatHouseDateTime(lastMorningRun.created_at)}
                 <br />
                 Rotina da casa: {(lastMorningRun.metadata as { choreReminder?: { message?: string } })?.choreReminder?.message ?? "—"}
                 <br />
@@ -359,6 +394,82 @@ export default async function SettingsPage({
                   Enviar lembretes de vencimento agora
                 </SubmitButton>
               </form>
+            </section>
+          )}
+
+          {profile.role === "admin" && (
+            <section className="card pad">
+              <h3 style={{ marginTop: 0 }}>Uso do Supabase</h3>
+              <p className="note">
+                No plano gratuito, cada projeto tem 500 MB de banco e 1 GB de
+                arquivos, com no máximo 50 MB por arquivo. Os comprovantes
+                aceitam até 8 MB e as fotos são reduzidas antes do envio.
+              </p>
+              {storageUsage ? (
+                <>
+                  <div className="usage-meter">
+                    <div className="progress-label">
+                      <span>Banco de dados</span>
+                      <span>
+                        {formatBytes(Number(storageUsage.database_bytes))} de 500 MB
+                      </span>
+                    </div>
+                    <div className="progress-track">
+                      <span
+                        style={{
+                          width: `${usagePercent(Number(storageUsage.database_bytes), FREE_PLAN_DATABASE_BYTES)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="usage-meter">
+                    <div className="progress-label">
+                      <span>
+                        Comprovantes ({Number(storageUsage.bucket_objects)} arquivo
+                        {Number(storageUsage.bucket_objects) === 1 ? "" : "s"})
+                      </span>
+                      <span>
+                        {formatBytes(Number(storageUsage.bucket_bytes))} de 1 GB
+                      </span>
+                    </div>
+                    <div className="progress-track">
+                      <span
+                        style={{
+                          width: `${usagePercent(Number(storageUsage.bucket_bytes), FREE_PLAN_STORAGE_BYTES)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {Number(storageUsage.orphan_objects) > 0 ? (
+                    <div className="message info">
+                      {Number(storageUsage.orphan_objects)} arquivo(s) sem uso
+                      ocupando {formatBytes(Number(storageUsage.orphan_bytes))}.
+                      São envios interrompidos ou substituídos que nenhum
+                      registro referencia há mais de 24 horas.
+                    </div>
+                  ) : (
+                    <div className="message success">
+                      Nenhum arquivo sem uso no armazenamento.
+                    </div>
+                  )}
+                  <form action={cleanOrphanReceipts} style={{ marginTop: 12 }}>
+                    <input type="hidden" name="redirect_to" value="/app/configuracoes" />
+                    <SubmitButton
+                      className="button ghost"
+                      disabled={Number(storageUsage.orphan_objects) === 0}
+                      pendingLabel="Limpando..."
+                    >
+                      Remover arquivos sem uso
+                    </SubmitButton>
+                  </form>
+                </>
+              ) : (
+                <div className="message info">
+                  {storageUsageError
+                    ? "Não foi possível consultar o uso. Confira se a migration 035 foi aplicada."
+                    : "Uso indisponível no momento."}
+                </div>
+              )}
             </section>
           )}
 

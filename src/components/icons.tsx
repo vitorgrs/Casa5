@@ -30,3 +30,4 @@ export const CartIcon = (props: IconProps) => <IconBase {...props}><circle cx="9
 export const MessageIcon = (props: IconProps) => <IconBase {...props}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/></IconBase>;
 export const LaundryIcon = (props: IconProps) => <IconBase {...props}><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h.01M12 6h4"/><circle cx="12" cy="14" r="5"/><path d="M9 14c1.2-1.2 2.1-1.1 3 0s1.8 1.2 3 0"/></IconBase>;
 export const WaterIcon = (props: IconProps) => <IconBase {...props}><path d="M12 2.8S5.5 10 5.5 15.2a6.5 6.5 0 0 0 13 0C18.5 10 12 2.8 12 2.8Z"/><path d="M9 16.2a3.2 3.2 0 0 0 3 2.1"/></IconBase>;
+export const DishIcon = (props: IconProps) => <IconBase {...props}><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="3"/><path d="M2 4v6M4 4v6M2 7h2M3 10v10M22 4c-1.5 1-2 3-2 6h2v10"/></IconBase>;

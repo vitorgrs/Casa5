@@ -10,6 +10,7 @@ import { AttachmentUploadForm } from "@/components/attachment-upload-form";
 import { MarkPaidControl } from "@/components/mark-paid-control";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requireActiveProfile } from "@/lib/auth";
+import { todayIso } from "@/lib/chore-rotation";
 import { asNumber, currency, monthLabel } from "@/lib/format";
 import {
   deleteExpense,
@@ -26,10 +27,9 @@ type Search = { month?: string; novo?: string; success?: string };
 
 function validMonth(value?: string) {
   if (value && /^\d{4}-\d{2}$/.test(value)) return value;
-  const now = new Date();
-  const initial = new Date("2026-08-01T00:00:00");
-  const base = now < initial ? initial : now;
-  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}`;
+  // O mês atual segue o fuso da casa, não o UTC do servidor.
+  const current = todayIso().slice(0, 7);
+  return current < "2026-08" ? "2026-08" : current;
 }
 
 function shiftMonth(month: string, delta: number) {

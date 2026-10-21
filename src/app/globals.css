@@ -828,6 +828,17 @@ textarea {
   font-size: 9px;
   margin-top: 7px;
 }
+.usage-meter {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.usage-meter .progress-label {
+  order: -1;
+  gap: 12px;
+  margin-top: 0;
+  font-size: 11px;
+}
 .alert-list {
   display: grid;
   gap: 10px;
@@ -4163,7 +4174,7 @@ body,
 
 .casa-em-dia-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: -8px 0 20px;
   padding: 6px;
@@ -4264,6 +4275,12 @@ body,
 
 .home-status-meta {
   margin: 12px 0 0;
+}
+
+@media (max-width: 1200px) {
+  .casa-em-dia-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {

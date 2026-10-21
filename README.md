@@ -41,7 +41,7 @@ Aplicação privada para gerenciar as despesas, pagamentos e rotinas de limpeza 
 1. Crie um projeto em `supabase.com`.
 2. Abra **SQL Editor**.
 3. Copie e execute as migrations em ordem numérica. Em um banco novo, rode
-   `001_initial.sql` até `029_laundry_responsibles_and_reminders.sql`. Em um banco já
+   `001_initial.sql` até `035_storage_usage_monitoring.sql`. Em um banco já
    existente, aplique somente as migrations ainda pendentes, sem pular números.
 
 O schema inicial começa em:
@@ -695,3 +695,43 @@ Principais mudanças:
   eventual tarefa de reembolso são gravados juntos ou nenhum deles é gravado.
 - Alterações financeiras nas parcelas passam por funções validadas; a permissão
   de marcar pagamentos não permite mudar morador, valor ou comprovante via API.
+
+## Atualização: lava-louça/seca-louça, uso do Supabase e fuso horário
+
+Aplique, nesta ordem, as migrations pendentes:
+
+```text
+supabase/migrations/034_dish_rack_cleaning_rotation.sql
+supabase/migrations/035_storage_usage_monitoring.sql
+```
+
+- **Casa em dia → Lava e seca-louça** (`/app/limpeza/louca`) é um rodízio por
+  confirmação igual ao do fogão e usa **a mesma ordem** dele. A ordem só é
+  editada na página do fogão; a pessoa da vez, o turno e o histórico do
+  lava-louça são próprios. Se a pessoa da vez sair da ordem do fogão, a vez
+  passa automaticamente para a primeira pessoa da nova ordem. A migration
+  inicia o rodízio pela primeira pessoa da ordem do fogão; o administrador pode
+  trocar a pessoa da vez na própria página.
+- **Configurações → Uso do Supabase** (somente administrador) mostra o tamanho
+  do banco, o espaço ocupado pelos comprovantes e os arquivos sem uso (envios
+  interrompidos ou substituídos que nenhum registro referencia há mais de 24
+  horas), com um botão para removê-los.
+- Fotos de comprovantes são reduzidas no navegador (lado maior de 2000 px,
+  JPEG) antes do envio. PDFs não são alterados e continuam limitados a 8 MB.
+- Datas e horas exibidas no servidor e nos e-mails usam o fuso de São Paulo.
+  Antes, a Vercel (UTC) mostrava horários 3 horas adiantados, eventos após as
+  21h no dia seguinte e “vence hoje”/“vencida” um dia antes.
+- O proxy usa `supabase.auth.getClaims()`, que valida a sessão localmente em
+  vez de consultar o Auth do Supabase em toda navegação.
+
+### Limites do plano gratuito do Supabase
+
+| Recurso | Limite por projeto |
+| --- | --- |
+| Banco de dados | 500 MB (acima disso o projeto fica somente leitura) |
+| Storage (arquivos) | 1 GB no total, até 50 MB por arquivo |
+| Tráfego de saída | 5 GB sem cache + 5 GB com cache por mês, por organização |
+
+Projetos gratuitos são pausados depois de uma semana sem atividade; os crons
+diários acessam o banco e evitam a pausa. Confira os números atuais em
+**Supabase → Project Settings → Usage**, pois as cotas podem mudar.

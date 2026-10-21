@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CartIcon, ChecklistIcon, PlusIcon } from "@/components/icons";
 import { can, requireActiveProfile } from "@/lib/auth";
-import { currency } from "@/lib/format";
+import { currency, formatHouseTimestamp } from "@/lib/format";
 import {
   ShoppingItemCreateForm,
   ShoppingListManager,
@@ -379,7 +379,7 @@ export default async function OrganizacaoPage({
                   <div className="item-title">
                     <strong>{purchaseItems.map((item) => item.name).join(", ") || "Compra"}</strong>
                     <small>
-                      {purchaseItems.length} item(ns) • {new Date(purchase.bought_at).toLocaleDateString("pt-BR")}
+                      {purchaseItems.length} item(ns) • {formatHouseTimestamp(purchase.bought_at)}
                     </small>
                   </div>
                   <span className="status-pill violet">

@@ -1,13 +1,20 @@
 import Link from "next/link";
 import {
   CheckIcon,
+  DishIcon,
   FireIcon,
   HomeIcon,
   LaundryIcon,
   WaterIcon,
 } from "@/components/icons";
 
-type CasaEmDiaSection = "tarefas" | "lavanderia" | "agua" | "fogao" | "mapa";
+type CasaEmDiaSection =
+  | "tarefas"
+  | "lavanderia"
+  | "agua"
+  | "fogao"
+  | "louca"
+  | "mapa";
 
 const sections = [
   {
@@ -33,6 +40,12 @@ const sections = [
     href: "/app/limpeza/fogao",
     label: "Limpeza do fogão",
     icon: FireIcon,
+  },
+  {
+    key: "louca" as const,
+    href: "/app/limpeza/louca",
+    label: "Lava e seca-louça",
+    icon: DishIcon,
   },
   {
     key: "mapa" as const,

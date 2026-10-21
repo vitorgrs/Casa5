@@ -18,6 +18,7 @@ import {
 import { SubmitButton } from "@/components/submit-button";
 import { initialFormActionState } from "@/lib/form-action-state";
 import { createClient } from "@/lib/supabase/client";
+import { compressReceiptImage } from "@/lib/image-compression";
 import { RECEIPT_BUCKET, validateReceiptFile } from "@/lib/storage";
 
 function ActionMessage({
@@ -68,21 +69,25 @@ export function ShoppingReceiptUploadForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const file = fileRef.current?.files?.[0];
+    const selectedFile = fileRef.current?.files?.[0];
     const paymentAmount = paymentRef.current?.value ?? "";
-    if (!file) {
+    if (!selectedFile) {
       setMessage({ kind: "error", text: "Selecione um arquivo." });
-      return;
-    }
-    const validationError = validateReceiptFile(file);
-    if (validationError) {
-      setMessage({ kind: "error", text: validationError });
       return;
     }
 
     setPending(true);
     setMessage(null);
     try {
+      // Comprimir antes de validar permite aceitar fotos grandes do celular
+      // que ficam dentro do limite depois de reduzidas.
+      const file = await compressReceiptImage(selectedFile);
+      const validationError = validateReceiptFile(file);
+      if (validationError) {
+        setMessage({ kind: "error", text: validationError });
+        return;
+      }
+
       const preparation = await prepareShoppingNetReceiptUpload(shareId, {
         name: file.name,
         type: file.type,
@@ -155,7 +160,7 @@ export function ShoppingReceiptUploadForm({
           required
           disabled={pending}
         />
-        <span>{fileName ?? "Escolher arquivo (PDF ou foto, até 8MB)"}</span>
+        <span>{fileName ?? "Escolher arquivo (PDF até 8MB ou foto — fotos são reduzidas)"}</span>
       </label>
       <button className="button secondary small" type="submit" disabled={pending}>
         {pending ? (

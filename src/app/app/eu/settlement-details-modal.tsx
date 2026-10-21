@@ -64,7 +64,9 @@ const interactiveSelector = "a,button,input,select,textarea,label,form,summary";
 
 function formatDate(value: string) {
   const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value;
-  return new Date(normalized).toLocaleDateString("pt-BR");
+  return new Date(normalized).toLocaleDateString("pt-BR", {
+    timeZone: normalized === value ? "America/Sao_Paulo" : undefined,
+  });
 }
 
 export function SettlementDetailsModal({

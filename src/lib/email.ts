@@ -60,9 +60,13 @@ function formatEmailDate(value: string | null) {
     ? `${value}T00:00:00`
     : value;
   const date = new Date(normalized);
+  // O envio roda no servidor (UTC); sem o fuso da casa, pagamentos feitos
+  // depois das 21h apareceriam com a data do dia seguinte.
   return Number.isNaN(date.getTime())
     ? "Data não informada"
-    : date.toLocaleDateString("pt-BR");
+    : date.toLocaleDateString("pt-BR", {
+        timeZone: /^\d{4}-\d{2}-\d{2}$/.test(value) ? undefined : "America/Sao_Paulo",
+      });
 }
 
 function parseSender(value?: string) {

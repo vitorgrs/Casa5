@@ -302,8 +302,8 @@ export default async function DashboardPage() {
               ? "Peça permissão ao administrador"
               : walletResult.data
                 ? walletResult.data.source === "mercado_pago"
-                  ? `Saldo referente a ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}`
-                  : `Informado em ${new Date(walletResult.data.observed_at).toLocaleDateString("pt-BR")}`
+                  ? `Saldo referente a ${formatHouseTimestamp(walletResult.data.observed_at)}`
+                  : `Informado em ${formatHouseTimestamp(walletResult.data.observed_at)}`
                 : "Configure o token em Configurações"}
           </span>
         </div>

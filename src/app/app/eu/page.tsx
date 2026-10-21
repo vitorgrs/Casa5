@@ -2,7 +2,13 @@ import Link from "next/link";
 import { StatusPill } from "@/components/status-pill";
 import { CalendarIcon, ChecklistIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import { requireActiveProfile } from "@/lib/auth";
-import { asNumber, currency, monthLabel } from "@/lib/format";
+import { todayIso } from "@/lib/chore-rotation";
+import {
+  asNumber,
+  currency,
+  formatHouseTimestamp,
+  monthLabel,
+} from "@/lib/format";
 import {
   settleZeroShoppingBalance,
   settleZeroShoppingBalanceAsAdmin,
@@ -64,11 +70,12 @@ export default async function MyPage({
   }
 
   const memberId = profile.member_id;
-  const currentMonth = new Date();
+  // Mês atual no fuso da casa; o servidor roda em UTC.
+  const [currentYear, currentMonthNumber] = todayIso().split("-").map(Number);
   const monthsBack = 5;
   const months = Array.from({ length: monthsBack + 1 }, (_, i) => {
-    const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - (monthsBack - i), 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+    const d = new Date(Date.UTC(currentYear, currentMonthNumber - 1 - (monthsBack - i), 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
   });
 
   const [
@@ -651,7 +658,7 @@ export default async function MyPage({
                       <div className="item-title">
                         <strong>{debtor?.name ?? "Morador"} → {creditor?.name ?? "Morador"}</strong>
                         <small>
-                          Fechado em {new Date(payment.confirmed_at ?? payment.submitted_at).toLocaleDateString("pt-BR")}
+                          Fechado em {formatHouseTimestamp(payment.confirmed_at ?? payment.submitted_at)}
                         </small>
                       </div>
                       <div className="item-value">
@@ -824,7 +831,7 @@ export default async function MyPage({
                         <div className="item-title">
                           <strong>{debtor?.name ?? "Morador"} → {creditor?.name ?? "Morador"}</strong>
                           <small>
-                            Fechado em {new Date(payment.confirmed_at ?? payment.submitted_at).toLocaleDateString("pt-BR")}
+                            Fechado em {formatHouseTimestamp(payment.confirmed_at ?? payment.submitted_at)}
                           </small>
                         </div>
                         <div className="item-value">

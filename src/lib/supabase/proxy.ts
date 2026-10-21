@@ -26,18 +26,27 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options)
+          );
+          // Cabeçalhos anti-cache enviados pelo @supabase/ssr impedem que uma
+          // CDN guarde respostas com cookies de sessão renovados.
+          Object.entries(headers ?? {}).forEach(([key, value]) =>
+            response.headers.set(key, value)
           );
         }
       }
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // getClaims valida o JWT localmente (chaves assimétricas) e renova a sessão
+  // perto da expiração, sem uma chamada ao Auth em toda navegação. As ações
+  // sensíveis continuam usando getUser() em requireUser.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
   const publicPath = path === "/" || path.startsWith("/login") || path.startsWith("/auth/");
 
   if (!user && !publicPath) {

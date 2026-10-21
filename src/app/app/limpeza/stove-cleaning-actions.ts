@@ -9,6 +9,8 @@ const STOVE_ACTION_TIMEOUT_MS = 15_000;
 
 function refreshStoveCleaningPages() {
   revalidatePath("/app/limpeza/fogao");
+  // A ordem do fogão também define a ordem do lava-louça/seca-louça.
+  revalidatePath("/app/limpeza/louca");
   revalidatePath("/app/limpeza/mapa");
   revalidatePath("/app/limpeza");
   revalidatePath("/app");

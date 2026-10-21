@@ -8,6 +8,7 @@ import {
   type ExpenseAttachmentTarget,
 } from "@/app/app/despesas/actions";
 import { createClient } from "@/lib/supabase/client";
+import { compressReceiptImage } from "@/lib/image-compression";
 import { RECEIPT_BUCKET, validateReceiptFile } from "@/lib/storage";
 
 export function AttachmentUploadForm({
@@ -35,20 +36,24 @@ export function AttachmentUploadForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) {
+    const selectedFile = fileRef.current?.files?.[0];
+    if (!selectedFile) {
       setMessage({ kind: "error", text: "Selecione um arquivo." });
-      return;
-    }
-    const validationError = validateReceiptFile(file);
-    if (validationError) {
-      setMessage({ kind: "error", text: validationError });
       return;
     }
 
     setPending(true);
     setMessage(null);
     try {
+      // Comprimir antes de validar permite aceitar fotos grandes do celular
+      // que ficam dentro do limite depois de reduzidas.
+      const file = await compressReceiptImage(selectedFile);
+      const validationError = validateReceiptFile(file);
+      if (validationError) {
+        setMessage({ kind: "error", text: validationError });
+        return;
+      }
+
       const preparation = await prepareExpenseAttachmentUpload(target, {
         name: file.name,
         type: file.type,
@@ -112,7 +117,7 @@ export function AttachmentUploadForm({
           required
           disabled={pending}
         />
-        <span>{fileName ?? "Escolher arquivo (PDF ou foto, até 8MB)"}</span>
+        <span>{fileName ?? "Escolher arquivo (PDF até 8MB ou foto — fotos são reduzidas)"}</span>
       </label>
       <button className="button secondary small" type="submit" disabled={pending}>
         {pending ? (

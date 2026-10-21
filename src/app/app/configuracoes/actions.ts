@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
-import { currency } from "@/lib/format";
+import { currency, formatHouseDateTime } from "@/lib/format";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
 import { PERMISSION_CATALOG } from "@/lib/permissions";
+import { RECEIPT_BUCKET } from "@/lib/storage";
 import { createServiceClient } from "@/lib/supabase/service";
 
 function destination(formData: FormData, fallback: string) {
@@ -59,7 +60,7 @@ export async function syncMercadoPago() {
     const formattedBalance =
       result.balance === null ? null : currency.format(result.balance);
     const reference = result.latestReportDate
-      ? new Date(result.latestReportDate).toLocaleString("pt-BR")
+      ? formatHouseDateTime(result.latestReportDate)
       : null;
     const balanceSummary = formattedBalance
       ? `Saldo confirmado: ${formattedBalance}${reference ? `, com referência em ${reference}` : ""}.`
@@ -173,4 +174,42 @@ export async function sendOpenSettlementsNow(formData: FormData) {
   redirect(
     `${pathOf(returnTo)}?${kind}=${encodeURIComponent(`Acertos: ${result.message}`)}`,
   );
+}
+
+export async function cleanOrphanReceipts(formData: FormData) {
+  const returnTo = destination(formData, "/app/configuracoes");
+  const { supabase } = await requireAdmin();
+  // A função valida o administrador e só devolve arquivos da casa dele, sem
+  // referência no banco e com mais de 24 horas (uploads em andamento ficam).
+  const { data: orphans, error } = await supabase.rpc(
+    "list_orphan_receipt_objects",
+    { max_items: 500 },
+  );
+  if (error) {
+    redirect(
+      `${pathOf(returnTo)}?error=${encodeURIComponent(`Armazenamento: ${error.message}`)}`,
+    );
+  }
+
+  const paths = ((orphans ?? []) as { path: string }[]).map((orphan) => orphan.path);
+  const service = createServiceClient();
+  let removed = 0;
+  for (let index = 0; index < paths.length; index += 100) {
+    const batch = paths.slice(index, index + 100);
+    const { data, error: removeError } = await service.storage
+      .from(RECEIPT_BUCKET)
+      .remove(batch);
+    if (removeError) {
+      redirect(
+        `${pathOf(returnTo)}?error=${encodeURIComponent(`Armazenamento: ${removed} arquivo(s) removido(s) antes do erro: ${removeError.message}`)}`,
+      );
+    }
+    removed += data?.length ?? 0;
+  }
+
+  revalidatePath(pathOf(returnTo));
+  const message = removed
+    ? `Armazenamento: ${removed} arquivo(s) sem uso removido(s).`
+    : "Armazenamento: nenhum arquivo sem uso encontrado.";
+  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent(message)}`);
 }

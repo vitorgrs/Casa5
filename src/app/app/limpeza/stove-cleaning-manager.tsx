@@ -1,9 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { FormActionMessage } from "@/components/form-action-message";
-import { CheckIcon, FireIcon, SettingsIcon } from "@/components/icons";
+import {
+  CheckIcon,
+  DishIcon,
+  FireIcon,
+  SettingsIcon,
+} from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import {
   initialFormActionState,
@@ -14,6 +20,10 @@ import {
   confirmStoveCleaning,
   saveStoveCleaningRotation,
 } from "./stove-cleaning-actions";
+import {
+  changeDishRackCleaningTurn,
+  confirmDishRackCleaning,
+} from "./dish-rack-cleaning-actions";
 
 export type StoveCleaningMember = {
   id: string;
@@ -99,6 +109,57 @@ function confirmStoveCleaningWithTimeout(
   );
 }
 
+function changeDishRackTurnWithTimeout(
+  previousState: FormActionState,
+  formData: FormData,
+) {
+  return runStoveActionWithTimeout(
+    changeDishRackCleaningTurn,
+    previousState,
+    formData,
+  );
+}
+
+function confirmDishRackCleaningWithTimeout(
+  previousState: FormActionState,
+  formData: FormData,
+) {
+  return runStoveActionWithTimeout(
+    confirmDishRackCleaning,
+    previousState,
+    formData,
+  );
+}
+
+// Fogão e lava-louça/seca-louça compartilham a mesma ordem, mas cada rodízio
+// tem pessoa da vez, turno e histórico próprios. Somente o fogão edita a ordem.
+export type CleaningRotationVariant = "stove" | "dish-rack";
+
+const ROTATION_VARIANTS = {
+  stove: {
+    sectionId: "rodizio-fogao",
+    title: "Rodízio de limpeza do fogão",
+    question: "O fogão já foi limpo?",
+    stripLabel: "Ordem do rodízio de limpeza do fogão",
+    settingsLabel: "Alterar ordem ou pessoa da vez",
+    Icon: FireIcon,
+    canEditOrder: true,
+    confirmAction: confirmStoveCleaningWithTimeout,
+    turnAction: changeStoveTurnWithTimeout,
+  },
+  "dish-rack": {
+    sectionId: "rodizio-louca",
+    title: "Rodízio do lava-louça e seca-louça",
+    question: "O lava-louça e o seca-louça já foram limpos?",
+    stripLabel: "Ordem do rodízio de limpeza do lava-louça e seca-louça",
+    settingsLabel: "Alterar pessoa da vez",
+    Icon: DishIcon,
+    canEditOrder: false,
+    confirmAction: confirmDishRackCleaningWithTimeout,
+    turnAction: changeDishRackTurnWithTimeout,
+  },
+} as const;
+
 function isUncertainResult(state: FormActionState) {
   if (state.status !== "error") return false;
   const message = state.message.toLocaleLowerCase("pt-BR");
@@ -148,6 +209,7 @@ function shortMemberName(name: string) {
 }
 
 export function StoveCleaningManager({
+  variant = "stove",
   initialMembers,
   availableMembers,
   currentMemberId,
@@ -158,6 +220,7 @@ export function StoveCleaningManager({
   configurationReady,
   loadError,
 }: {
+  variant?: CleaningRotationVariant;
   initialMembers: StoveCleaningMember[];
   availableMembers: StoveCleaningMember[];
   currentMemberId: string | null;
@@ -168,6 +231,8 @@ export function StoveCleaningManager({
   configurationReady: boolean;
   loadError: string | null;
 }) {
+  const config = ROTATION_VARIANTS[variant];
+  const RotationIcon = config.Icon;
   const [draftMembers, setDraftMembers] = useState(initialMembers);
   const [selectedCurrentId, setSelectedCurrentId] = useState(
     currentMemberId ?? initialMembers[0]?.id ?? "",
@@ -179,11 +244,11 @@ export function StoveCleaningManager({
     initialFormActionState,
   );
   const [turnState, turnAction] = useActionState(
-    changeStoveTurnWithTimeout,
+    config.turnAction,
     initialFormActionState,
   );
   const [confirmState, confirmAction] = useActionState(
-    confirmStoveCleaningWithTimeout,
+    config.confirmAction,
     initialFormActionState,
   );
 
@@ -252,15 +317,15 @@ export function StoveCleaningManager({
   }
 
   return (
-    <section className="card stove-cleaning-card" id="rodizio-fogao">
+    <section className="card stove-cleaning-card" id={config.sectionId}>
       <div className="card-head stove-cleaning-head">
         <div>
-          <h2>Rodízio de limpeza do fogão</h2>
+          <h2>{config.title}</h2>
           <span className="muted-text">
             Sem prazo fixo: a vez só avança quando a limpeza é confirmada.
           </span>
         </div>
-        <FireIcon />
+        <RotationIcon />
       </div>
 
       <div className="stove-cleaning-body">
@@ -309,7 +374,9 @@ export function StoveCleaningManager({
         {!loadError && !configurationReady && (
           <div className="message info stove-configuration-note">
             {canManage
-              ? "Salve a ordem e defina a primeira pessoa para iniciar este rodízio."
+              ? config.canEditOrder
+                ? "Salve a ordem e defina a primeira pessoa para iniciar este rodízio."
+                : "Configure a ordem na página do fogão e defina a pessoa da vez abaixo."
               : "O administrador ainda precisa concluir a configuração deste rodízio."}
           </div>
         )}
@@ -331,7 +398,7 @@ export function StoveCleaningManager({
               value={String(currentTurnNumber)}
             />
             <div className="stove-confirm-copy">
-              <strong>O fogão já foi limpo?</strong>
+              <strong>{config.question}</strong>
               <small>
                 Qualquer morador pode confirmar. A vez passará para {nextMember
                   ? shortMemberName(nextMember.name)
@@ -355,7 +422,7 @@ export function StoveCleaningManager({
 
         <div
           className="stove-rotation-strip"
-          aria-label="Ordem do rodízio de limpeza do fogão"
+          aria-label={config.stripLabel}
           role="list"
         >
           {initialMembers.map((member, index) => (
@@ -380,105 +447,117 @@ export function StoveCleaningManager({
             open={!configurationReady ? true : undefined}
           >
             <summary>
-              <SettingsIcon /> Alterar ordem ou pessoa da vez
+              <SettingsIcon /> {config.settingsLabel}
             </summary>
             <div className="editor-body stove-cleaning-settings-body">
-              <form action={orderAction} className="stack-form">
-                {draftMembers.map((member) => (
-                  <input
-                    type="hidden"
-                    name="member_ids"
-                    value={member.id}
-                    key={member.id}
-                  />
-                ))}
-                <div className="rotation-order-list">
-                  {draftMembers.map((member, index) => (
-                    <div className="rotation-order-row" key={member.id}>
-                      <span className="rotation-position">{index + 1}</span>
-                      <div className={`avatar avatar-${member.color_key}`}>
-                        {member.initials}
-                      </div>
-                      <strong>{member.name}</strong>
-                      <div className="rotation-order-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          disabled={index === 0}
-                          onClick={() => move(index, -1)}
-                          aria-label={`Mover ${member.name} para cima`}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button"
-                          disabled={index === draftMembers.length - 1}
-                          onClick={() => move(index, 1)}
-                          aria-label={`Mover ${member.name} para baixo`}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button stove-remove-member"
-                          onClick={() => removeMember(member.id)}
-                          aria-label={`Retirar ${member.name} do rodízio`}
-                          title="Retirar do rodízio"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {draftMembers.length === 0 && (
-                    <div className="empty stove-editor-empty">
-                      Inclua pelo menos duas pessoas para montar a ordem.
-                    </div>
-                  )}
+              {!config.canEditOrder && (
+                <div className="message info stove-shared-order-note">
+                  A ordem é a mesma do fogão. Para incluir, retirar ou reordenar
+                  pessoas,{" "}
+                  <Link href="/app/limpeza/fogao#rodizio-fogao">
+                    altere a ordem na página do fogão
+                  </Link>
+                  .
                 </div>
-                <div className="stove-available-members">
-                  <div>
-                    <strong>Fora do rodízio</strong>
-                    <small>Use “Incluir” para adicionar uma pessoa ao fim da fila.</small>
-                  </div>
-                  <div className="stove-available-member-list">
-                    {membersOutsideRotation.map((member) => (
-                      <div className="stove-available-member" key={member.id}>
+              )}
+              {config.canEditOrder && (
+                <form action={orderAction} className="stack-form">
+                  {draftMembers.map((member) => (
+                    <input
+                      type="hidden"
+                      name="member_ids"
+                      value={member.id}
+                      key={member.id}
+                    />
+                  ))}
+                  <div className="rotation-order-list">
+                    {draftMembers.map((member, index) => (
+                      <div className="rotation-order-row" key={member.id}>
+                        <span className="rotation-position">{index + 1}</span>
                         <div className={`avatar avatar-${member.color_key}`}>
                           {member.initials}
                         </div>
                         <strong>{member.name}</strong>
-                        <button
-                          type="button"
-                          className="button ghost small"
-                          onClick={() => addMember(member.id)}
-                        >
-                          + Incluir
-                        </button>
+                        <div className="rotation-order-actions">
+                          <button
+                            type="button"
+                            className="icon-button"
+                            disabled={index === 0}
+                            onClick={() => move(index, -1)}
+                            aria-label={`Mover ${member.name} para cima`}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            disabled={index === draftMembers.length - 1}
+                            onClick={() => move(index, 1)}
+                            aria-label={`Mover ${member.name} para baixo`}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button stove-remove-member"
+                            onClick={() => removeMember(member.id)}
+                            aria-label={`Retirar ${member.name} do rodízio`}
+                            title="Retirar do rodízio"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
                     ))}
-                    {membersOutsideRotation.length === 0 && (
-                      <small className="muted-text">
-                        Todos os moradores ativos já estão nesta ordem.
-                      </small>
+                    {draftMembers.length === 0 && (
+                      <div className="empty stove-editor-empty">
+                        Inclua pelo menos duas pessoas para montar a ordem.
+                      </div>
                     )}
                   </div>
-                </div>
-                {draftMembers.length < 2 && (
-                  <div className="message info stove-minimum-members">
-                    O rodízio precisa ter pelo menos duas pessoas.
+                  <div className="stove-available-members">
+                    <div>
+                      <strong>Fora do rodízio</strong>
+                      <small>Use “Incluir” para adicionar uma pessoa ao fim da fila.</small>
+                    </div>
+                    <div className="stove-available-member-list">
+                      {membersOutsideRotation.map((member) => (
+                        <div className="stove-available-member" key={member.id}>
+                          <div className={`avatar avatar-${member.color_key}`}>
+                            {member.initials}
+                          </div>
+                          <strong>{member.name}</strong>
+                          <button
+                            type="button"
+                            className="button ghost small"
+                            onClick={() => addMember(member.id)}
+                          >
+                            + Incluir
+                          </button>
+                        </div>
+                      ))}
+                      {membersOutsideRotation.length === 0 && (
+                        <small className="muted-text">
+                          Todos os moradores ativos já estão nesta ordem.
+                        </small>
+                      )}
+                    </div>
                   </div>
-                )}
-                <SubmitButton
-                  className="button secondary"
-                  pendingLabel="Salvando ordem..."
-                  disabled={draftMembers.length < 2}
-                >
-                  Salvar ordem
-                </SubmitButton>
-                <FormActionMessage state={orderState} inline />
-              </form>
+                  {draftMembers.length < 2 && (
+                    <div className="message info stove-minimum-members">
+                      O rodízio precisa ter pelo menos duas pessoas.
+                    </div>
+                  )}
+                  <SubmitButton
+                    className="button secondary"
+                    pendingLabel="Salvando ordem..."
+                    disabled={draftMembers.length < 2}
+                  >
+                    Salvar ordem
+                  </SubmitButton>
+                  <FormActionMessage state={orderState} inline />
+                </form>
+              )}
 
               <form
                 ref={turnFormRef}
