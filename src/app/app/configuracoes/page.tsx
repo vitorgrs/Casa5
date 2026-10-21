@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
-import { can, requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import { emailConfigured, emailProviderName } from "@/lib/email";
 import {
   asNumber,
@@ -61,7 +61,7 @@ export default async function SettingsPage({
 }) {
   const params = await searchParams;
   const baseRoute = "/app/configuracoes";
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("settings");
   const canViewWallet = can(profile, "view_wallet_balance");
   const { data: snapshots } = canViewWallet
     ? await supabase
@@ -96,7 +96,7 @@ export default async function SettingsPage({
     .limit(1)
     .maybeSingle();
   const { data: storageUsageData, error: storageUsageError } =
-    profile.role === "admin"
+    can(profile, "manage_storage")
       ? await supabase.rpc("storage_usage_summary")
       : { data: null, error: null };
   const storageUsage = storageUsageData as StorageUsageSummary | null;
@@ -117,7 +117,7 @@ export default async function SettingsPage({
         <div className="page-actions">
           {profile.role === "admin" && (
             <Link className="button secondary" href="/app/configuracoes/permissoes">
-              <SettingsIcon /> Permissões dos moradores
+              <SettingsIcon /> Acesso dos moradores
             </Link>
           )}
           <div className="role-chip">
@@ -149,7 +149,10 @@ export default async function SettingsPage({
                   : `Saldo informado manualmente em ${formatHouseDateTime(latest.observed_at)}`
                 : "Configure o token e solicite a primeira sincronização."}
             </div>
-            {profile.role === "admin" && (
+            <Link className="button ghost small" href="/app/financeiro" style={{ marginTop: 16 }}>
+              Ver extrato e conciliar Pix
+            </Link>
+            {can(profile, "manage_wallet") && (
               <form action={syncMercadoPago} style={{ marginTop: 22 }}>
                 <SubmitButton
                   className="button secondary"
@@ -250,7 +253,7 @@ export default async function SettingsPage({
             </p>
           </section>
 
-          {profile.role === "admin" && (
+          {can(profile, "manage_wallet") && (
             <section className="card pad">
               <h3 style={{ marginTop: 0 }}>Informar saldo manualmente</h3>
               <p className="note">
@@ -326,7 +329,7 @@ export default async function SettingsPage({
                 O cron de e-mails das 06:00 ainda não registrou nenhuma execução.
               </div>
             )}
-            {profile.role === "admin" && (
+            {can(profile, "manage_notifications") && (
               <form action={sendDailyEmailsNow} style={{ marginTop: 12 }}>
                 <input type="hidden" name="redirect_to" value="/app/configuracoes" />
                 <SubmitButton
@@ -340,7 +343,7 @@ export default async function SettingsPage({
             )}
           </section>
 
-          {profile.role === "admin" && (
+          {can(profile, "manage_notifications") && (
             <section className="card pad">
               <h3 style={{ marginTop: 0 }}>Lembretes de vencimento por e-mail</h3>
               <p className="note">
@@ -397,7 +400,7 @@ export default async function SettingsPage({
             </section>
           )}
 
-          {profile.role === "admin" && (
+          {can(profile, "manage_storage") && (
             <section className="card pad">
               <h3 style={{ marginTop: 0 }}>Uso do Supabase</h3>
               <p className="note">
@@ -473,7 +476,7 @@ export default async function SettingsPage({
             </section>
           )}
 
-          {profile.role === "admin" && (
+          {can(profile, "manage_notifications") && (
             <section className="card pad">
               <h3 style={{ marginTop: 0 }}>E-mail de acerto de contas</h3>
               <p className="note">

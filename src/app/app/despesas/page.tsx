@@ -9,7 +9,7 @@ import { StatusPill } from "@/components/status-pill";
 import { AttachmentUploadForm } from "@/components/attachment-upload-form";
 import { MarkPaidControl } from "@/components/mark-paid-control";
 import { SubmitButton } from "@/components/submit-button";
-import { can, requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import { todayIso } from "@/lib/chore-rotation";
 import { asNumber, currency, monthLabel } from "@/lib/format";
 import {
@@ -46,7 +46,7 @@ export default async function ExpensesPage({
   const params = await searchParams;
   const selectedMonth = validMonth(params.month);
   const baseRoute = `/app/despesas?month=${selectedMonth}`;
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("expenses");
   const canManageExpenses = can(profile, "manage_expenses");
   const canMarkPaid = can(profile, "mark_expenses_paid");
   const [{ data: members }, { data: expenses }] = await Promise.all([
@@ -114,9 +114,9 @@ export default async function ExpensesPage({
 
       {params.success && <div className="message success">{params.success}</div>}
 
-      {profile.role === "admin" && (
+      {can(profile, "record_payments_without_receipt") && (
         <div className="message info">
-          Como administrador, você pode informar o valor recebido e marcar a
+          Com a sua permissão, você pode informar o valor recebido e marcar a
           parcela como paga mesmo sem comprovante. O anexo continua opcional.
         </div>
       )}
@@ -258,7 +258,7 @@ export default async function ExpensesPage({
                               Pago: {currency.format(paidAmount)}
                             </span>
                           )}
-                          {profile.role === "admin" ? (
+                          {can(profile, "record_payments_without_receipt") ? (
                             <div className="admin-expense-payment-control">
                               <form action={setExpensePaymentAsAdmin}>
                                 <input type="hidden" name="share_id" value={share.id} />
@@ -473,21 +473,23 @@ export default async function ExpensesPage({
                       redirectTo={baseRoute}
                       cancelHref={baseRoute}
                     />
-                    <form action={deleteExpense} style={{ marginTop: 12 }}>
-                      <input
-                        type="hidden"
-                        name="expense_id"
-                        value={expense.id}
-                      />
-                      <input
-                        type="hidden"
-                        name="redirect_to"
-                        value={baseRoute}
-                      />
-                      <SubmitButton className="button danger small" pendingLabel="Excluindo...">
-                        Excluir despesa
-                      </SubmitButton>
-                    </form>
+                    {can(profile, "delete_expenses") && (
+                      <form action={deleteExpense} style={{ marginTop: 12 }}>
+                        <input
+                          type="hidden"
+                          name="expense_id"
+                          value={expense.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="redirect_to"
+                          value={baseRoute}
+                        />
+                        <SubmitButton className="button danger small" pendingLabel="Excluindo...">
+                          Excluir despesa
+                        </SubmitButton>
+                      </form>
+                    )}
                   </div>
                 </details>
               )}

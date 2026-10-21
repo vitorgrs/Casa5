@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { isIsoDate, todayIso } from "@/lib/chore-rotation";
 import type { FormActionState } from "@/lib/form-action-state";
 import {
@@ -60,7 +60,7 @@ export async function saveLaundryRotation(
   }
 
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_laundry");
     const { error } = await supabase.rpc("set_laundry_rotation", {
       rotation_anchor_date: anchorDate,
       rotation_anchor_member_id: anchorMemberId,
@@ -122,7 +122,7 @@ export async function createCollectiveWash(
   }
 
   try {
-    const { profile, supabase } = await requireAdmin();
+    const { profile, supabase } = await requirePermission("manage_laundry");
     if (responsibleMemberId) {
       const { data: responsible, error: responsibleError } = await supabase
         .from("household_members")
@@ -170,7 +170,7 @@ export async function deleteCollectiveWash(
   if (!washId) return { status: "error", message: "Lavagem não informada." };
 
   try {
-    const { profile, supabase } = await requireAdmin();
+    const { profile, supabase } = await requirePermission("manage_laundry");
     const { data, error } = await supabase
       .from("laundry_collective_washes")
       .delete()

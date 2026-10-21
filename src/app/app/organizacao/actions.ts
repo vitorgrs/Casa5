@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import {
+  can,
   requireActiveProfile,
-  requireAdmin,
   requirePermission,
 } from "@/lib/auth";
 import type { FormActionState } from "@/lib/form-action-state";
@@ -172,7 +172,7 @@ export async function addShoppingItem(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_shopping");
   try {
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return { status: "error", message: "Informe o nome do item." };
@@ -218,7 +218,7 @@ export async function toggleShoppingChecked(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("manage_shopping");
   try {
     const itemId = String(formData.get("item_id"));
     const nextStatus = String(formData.get("next_status") ?? "checked");
@@ -255,7 +255,7 @@ export async function updateShoppingItem(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_shopping");
   try {
     const itemId = String(formData.get("item_id") ?? "");
     const name = String(formData.get("name") ?? "").trim();
@@ -309,7 +309,7 @@ export async function recordShoppingPurchase(
   const returnTo = destination(formData, "/app/organizacao");
   const signal = AbortSignal.timeout(SHOPPING_PURCHASE_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_shopping", signal);
     const itemIds = Array.from(
       new Set(formData.getAll("selected_item_ids").map(String).filter(Boolean)),
     );
@@ -422,7 +422,7 @@ export async function resetShoppingPurchase(
   const returnTo = destination(formData, "/app/organizacao");
   const signal = AbortSignal.timeout(SHOPPING_MUTATION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_shopping");
     const purchaseId = String(formData.get("purchase_id") ?? "");
     const { count: pendingReceipts } = await supabase
       .from("shopping_purchase_shares")
@@ -471,7 +471,7 @@ export async function removeItemFromShoppingPurchase(
   const returnTo = destination(formData, "/app/organizacao");
   const signal = AbortSignal.timeout(SHOPPING_MUTATION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_shopping");
     const purchaseId = String(formData.get("purchase_id") ?? "");
     const itemId = String(formData.get("item_id") ?? "");
     if (!purchaseId || !itemId) {
@@ -510,7 +510,7 @@ export async function deleteShoppingItem(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/organizacao");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_shopping");
   try {
     const itemId = String(formData.get("item_id"));
     const { data, error } = await supabase
@@ -549,7 +549,10 @@ async function resolveShoppingReceiptShare(shareId: string) {
   if (error || !share || !purchase || purchase.household_id !== profile.household_id) {
     throw new Error("Dívida de compra não encontrada.");
   }
-  if (share.member_id !== profile.member_id && profile.role !== "admin") {
+  if (
+    share.member_id !== profile.member_id &&
+    !can(profile, "manage_shopping_settlements")
+  ) {
     throw new Error("Somente o devedor ou o administrador pode enviar este comprovante.");
   }
   return { profile, supabase, receiptPath: share.receipt_path };
@@ -679,7 +682,7 @@ export async function recordShoppingNetPaymentAsAdmin(
   formData: FormData,
 ): Promise<FormActionState> {
   const returnTo = destination(formData, "/app/eu");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("manage_shopping_settlements");
   const shareId = String(formData.get("share_id") ?? "");
   const paidAmount = decimal(formData.get("payment_amount"));
 
@@ -724,7 +727,7 @@ export async function settleZeroShoppingBalance(formData: FormData) {
 
 export async function settleZeroShoppingBalanceAsAdmin(formData: FormData) {
   const returnTo = destination(formData, "/app/eu");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("manage_shopping_settlements");
   const firstMemberId = String(formData.get("first_member_id") ?? "");
   const secondMemberId = String(formData.get("second_member_id") ?? "");
   if (!firstMemberId || !secondMemberId || firstMemberId === secondMemberId) {

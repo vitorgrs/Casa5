@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { signedReceiptUrl } from "@/lib/storage";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -36,7 +36,7 @@ export async function GET(
     !validReceiptPath ||
     !debtor ||
     debtor.household_id !== profile.household_id ||
-    (profile.role !== "admin" && !isParticipant)
+    (!can(profile, "manage_shopping_settlements") && !isParticipant)
   ) {
     return new NextResponse("Comprovante não encontrado.", { status: 404 });
   }

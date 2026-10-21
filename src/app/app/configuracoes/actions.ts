@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requirePermission } from "@/lib/auth";
 import { currency, formatHouseDateTime } from "@/lib/format";
 import { syncLatestMercadoPagoReport } from "@/lib/mercado-pago";
-import { PERMISSION_CATALOG } from "@/lib/permissions";
+import { PAGE_KEYS, PERMISSION_KEYS } from "@/lib/permissions";
 import { RECEIPT_BUCKET } from "@/lib/storage";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -32,7 +32,7 @@ function valueToMoney(value: FormDataEntryValue | null) {
 
 export async function addManualBalance(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_wallet");
   const { error } = await supabase.from("wallet_snapshots").insert({
     household_id: profile.household_id,
     balance: valueToMoney(formData.get("balance")),
@@ -45,9 +45,13 @@ export async function addManualBalance(formData: FormData) {
   redirect(returnTo);
 }
 
-export async function syncMercadoPago() {
-  const { profile, supabase } = await requireAdmin();
-  let destination: string;
+export async function syncMercadoPago(formData?: FormData) {
+  const { profile, supabase } = await requirePermission("manage_wallet");
+  // A sincronização é disparada de Configurações e de Conta da casa.
+  const returnTo = formData
+    ? pathOf(destination(formData, "/app/configuracoes"))
+    : "/app/configuracoes";
+  let target: string;
   try {
     const result = await syncLatestMercadoPagoReport(
       supabase,
@@ -55,6 +59,7 @@ export async function syncMercadoPago() {
       profile.id,
     );
     revalidatePath("/app/configuracoes");
+    revalidatePath("/app/financeiro");
 
     let message: string;
     const formattedBalance =
@@ -83,36 +88,49 @@ export async function syncMercadoPago() {
       message =
         "Ainda não há arquivo pronto para importar. O Mercado Pago já recebeu a solicitação; aguarde a disponibilização do relatório.";
     }
+    if (result.payerLookup?.found) {
+      message = `${message} ${result.payerLookup.found} pagador(es) identificado(s) no extrato.`;
+    }
     const kind = result.requestDetail ? "error" : "success";
-    destination = `/app/configuracoes?${kind}=${encodeURIComponent(message)}`;
+    target = `${returnTo}?${kind}=${encodeURIComponent(message)}`;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Falha ao sincronizar.";
-    destination = `/app/configuracoes?error=${encodeURIComponent(message)}`;
+    target = `${returnTo}?error=${encodeURIComponent(message)}`;
   }
-  redirect(destination);
+  redirect(target);
 }
 
 export async function updatePermissions(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes/permissoes");
+  // Editar permissões nunca é delegável; o banco confere isso de novo.
   const { supabase } = await requireAdmin();
-  const profileId = String(formData.get("profile_id"));
-  const permissions: Record<string, boolean> = {};
-  for (const item of PERMISSION_CATALOG) {
-    permissions[item.key] = formData.get(`perm_${item.key}`) === "on";
+  const profileId = String(formData.get("profile_id") ?? "");
+  const grantedPermissions = PERMISSION_KEYS.filter(
+    (key) => formData.get(`perm_${key}`) === "on",
+  );
+  // A tela mostra as páginas visíveis marcadas; guardamos as desmarcadas.
+  const hiddenPages = PAGE_KEYS.filter(
+    (key) => formData.get(`page_${key}`) !== "on",
+  );
+  const { error } = await supabase.rpc("set_profile_access", {
+    target_profile_id: profileId,
+    granted_permissions: grantedPermissions,
+    hidden_page_keys: hiddenPages,
+  });
+  const base = pathOf(returnTo);
+  if (error) {
+    redirect(`${base}?error=${encodeURIComponent(error.message)}#perfil-${profileId}`);
   }
-  const { error } = await supabase
-    .from("profiles")
-    .update({ permissions })
-    .eq("id", profileId);
-  if (error) throw new Error(error.message);
-  revalidatePath(pathOf(returnTo));
-  redirect(`${pathOf(returnTo)}?success=${encodeURIComponent("Permissões atualizadas.")}`);
+  revalidatePath("/app", "layout");
+  redirect(
+    `${base}?success=${encodeURIComponent("Acesso atualizado.")}#perfil-${profileId}`,
+  );
 }
 
 export async function updateReminderSettings(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_notifications");
   const remindersEnabled = formData.get("reminders_enabled") === "on";
   const daysBefore = Math.min(Math.max(Number(formData.get("reminder_days_before") ?? 3), 0), 14);
   const { error } = await supabase.from("household_settings").upsert({
@@ -128,7 +146,7 @@ export async function updateReminderSettings(formData: FormData) {
 
 export async function sendRemindersNow(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { profile } = await requireAdmin();
+  const { profile } = await requirePermission("manage_notifications");
   // O log anti-spam só aceita escrita pela service role. A rotina manual
   // autentica o administrador acima e usa o mesmo cliente do cron no envio.
   const supabase = createServiceClient();
@@ -141,7 +159,7 @@ export async function sendRemindersNow(formData: FormData) {
 
 export async function sendDailyEmailsNow(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { profile } = await requireAdmin();
+  const { profile } = await requirePermission("manage_notifications");
   const supabase = createServiceClient();
   const [{ runDailyChoreReminder }, { runDailyLaundryReminder }] =
     await Promise.all([
@@ -162,7 +180,7 @@ export async function sendDailyEmailsNow(formData: FormData) {
 
 export async function sendOpenSettlementsNow(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { profile } = await requireAdmin();
+  const { profile } = await requirePermission("manage_notifications");
   const supabase = createServiceClient();
   const { runOpenSettlementEmails } = await import("@/lib/settlement-emails");
   const result = await runOpenSettlementEmails(
@@ -178,7 +196,7 @@ export async function sendOpenSettlementsNow(formData: FormData) {
 
 export async function cleanOrphanReceipts(formData: FormData) {
   const returnTo = destination(formData, "/app/configuracoes");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("manage_storage");
   // A função valida o administrador e só devolve arquivos da casa dele, sem
   // referência no banco e com mais de 24 horas (uploads em andamento ficam).
   const { data: orphans, error } = await supabase.rpc(

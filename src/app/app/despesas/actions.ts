@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { can, requireActiveProfile, requireAdmin, requirePermission } from "@/lib/auth";
+import { can, requireActiveProfile, requirePermission } from "@/lib/auth";
 import type { FormActionState } from "@/lib/form-action-state";
 import {
   deleteFromReceiptBucket,
@@ -196,7 +196,7 @@ export async function setPaymentStatus(formData: FormData) {
 
 export async function setExpensePaymentAsAdmin(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("record_payments_without_receipt");
   const shareId = String(formData.get("share_id") ?? "");
   const status = String(formData.get("status") ?? "paid");
   const paidAmount = money(formData.get("paid_amount"));
@@ -229,7 +229,7 @@ export async function setExpensePaymentAsAdmin(formData: FormData) {
 
 export async function deleteExpense(formData: FormData) {
   const returnTo = destination(formData, "/app/despesas");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("delete_expenses");
   const expenseId = String(formData.get("expense_id"));
   const { data: expense } = await supabase
     .from("expenses")

@@ -1,6 +1,6 @@
 import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
 import { HomeIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import {
   deriveHouseCleaningTurn,
   HOUSE_CLEANING_AREA_DEFINITIONS,
@@ -58,7 +58,7 @@ function isPositiveTurn(value: number | string | null | undefined) {
 }
 
 export default async function InteractiveHouseMapPage() {
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("house_map");
 
   const [
     membersResult,
@@ -326,13 +326,13 @@ export default async function InteractiveHouseMapPage() {
         </div>
       </div>
 
-      <CasaEmDiaTabs active="mapa" />
+      <CasaEmDiaTabs active="mapa" profile={profile} />
 
       <InteractiveHouseMap
         members={members}
         areas={areas}
         stove={stove}
-        canManage={profile.role === "admin"}
+        canManage={can(profile, "manage_house_map")}
         currentMemberId={profile.member_id}
         houseMutationsReady={
           !membersResult.error &&

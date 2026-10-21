@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowIcon, CheckIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
-import { requireAdmin } from "@/lib/auth";
+import { requirePage } from "@/lib/auth";
 import {
   addDays,
   formatHouseDate,
@@ -31,7 +31,10 @@ export default async function RotationAdminPage({
   searchParams: Promise<{ success?: string; error?: string; updated?: string }>;
 }) {
   const params = await searchParams;
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePage("daily_rotation_admin", {
+    permission: "manage_daily_rotation",
+    fallback: "/app/limpeza",
+  });
 
   const [
     { data: settings },

@@ -1,6 +1,6 @@
 import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
 import { FireIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import {
   StoveCleaningManager,
   type StoveCleaningHistoryEntry,
@@ -10,7 +10,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function StoveCleaningPage() {
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("stove");
 
   const [
     { data: members, error: membersError },
@@ -89,7 +89,7 @@ export default async function StoveCleaningPage() {
         </div>
       </div>
 
-      <CasaEmDiaTabs active="fogao" />
+      <CasaEmDiaTabs active="fogao" profile={profile} />
 
       <StoveCleaningManager
         initialMembers={rotationMembers}
@@ -98,7 +98,7 @@ export default async function StoveCleaningPage() {
         currentSince={settings?.current_since ?? null}
         currentTurnNumber={settings?.turn_number ?? null}
         history={(history ?? []) as StoveCleaningHistoryEntry[]}
-        canManage={profile.role === "admin"}
+        canManage={can(profile, "manage_stove_dish")}
         configurationReady={configurationReady}
         loadError={
           loadError

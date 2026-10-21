@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { parseCsv } from "@/lib/csv";
 
 const BASE_URL = "https://api.mercadopago.com";
@@ -5,7 +6,12 @@ const RELEASE_REPORT_PATH = "/v1/account/release_report";
 const MERCADO_PAGO_TIMEOUT_MS = 10_000;
 const REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const PENDING_REQUEST_DEDUPE_MS = 90 * 60 * 1000;
-const BALANCE_PARSER_VERSION = 3;
+// v4 passou a importar também as movimentações do extrato; subir a versão
+// faz o relatório mais recente ser reprocessado uma vez.
+const BALANCE_PARSER_VERSION = 4;
+// Consultas de pagador por sincronização. A API é gratuita, mas limitar evita
+// estourar o tempo da função quando muitas entradas chegam de uma vez.
+const PAYER_LOOKUPS_PER_SYNC = 15;
 
 function headers() {
   const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -348,8 +354,170 @@ export async function downloadAndCalculateBalance(fileName: string) {
   return {
     balance: Math.round(balance * 100) / 100,
     transactions: rows.length,
-    lastMovementAt: lastMovement?.DATE ?? null
+    lastMovementAt: lastMovement?.DATE ?? null,
+    movements: parseStatementMovements(rows),
   };
+}
+
+export type StatementMovement = {
+  movement_key: string;
+  source_id: string | null;
+  occurred_at: string;
+  record_type: string | null;
+  description: string | null;
+  payment_method: string | null;
+  net_credit: number;
+  net_debit: number;
+  balance_after: number | null;
+};
+
+// Linhas de resumo do relatório não são movimentações reais.
+const SUMMARY_RECORD_TYPES = new Set(["total", "initial_available_balance", "available_balance"]);
+
+function roundCents(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+export function parseStatementMovements(rows: Record<string, string>[]): StatementMovement[] {
+  const movements: StatementMovement[] = [];
+  for (const row of rows) {
+    const recordType = row.RECORD_TYPE?.trim().toLowerCase() || null;
+    if (recordType && SUMMARY_RECORD_TYPES.has(recordType)) continue;
+    const timestamp = rowTimestamp(row);
+    if (!Number.isFinite(timestamp)) continue;
+    const credit = roundCents(Math.abs(parseMoney(row.NET_CREDIT_AMOUNT)));
+    const debit = roundCents(Math.abs(parseMoney(row.NET_DEBIT_AMOUNT)));
+    if (credit === 0 && debit === 0) continue;
+
+    const sourceId = row.SOURCE_ID?.trim() || null;
+    const description = row.DESCRIPTION?.trim() || null;
+    // Os relatórios diários se sobrepõem (35 dias); estes campos identificam a
+    // mesma linha em arquivos diferentes.
+    const movementKey = createHash("sha256")
+      .update(
+        [sourceId, row.DATE?.trim(), recordType, description, credit.toFixed(2), debit.toFixed(2)]
+          .map((value) => value ?? "")
+          .join("|"),
+      )
+      .digest("hex");
+    const balanceText = row.BALANCE_AMOUNT?.trim();
+
+    movements.push({
+      movement_key: movementKey,
+      source_id: sourceId,
+      occurred_at: new Date(timestamp).toISOString(),
+      record_type: recordType,
+      description,
+      payment_method: row.PAYMENT_METHOD?.trim() || null,
+      net_credit: credit,
+      net_debit: debit,
+      balance_after: balanceText ? roundCents(parseMoney(balanceText)) : null,
+    });
+  }
+  return movements;
+}
+
+type PaymentLookup = {
+  payer?: {
+    email?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    identification?: { number?: string | null } | null;
+  } | null;
+  point_of_interaction?: {
+    transaction_data?: {
+      bank_info?: {
+        payer?: {
+          account_holder_name?: string | null;
+          long_name?: string | null;
+        } | null;
+      } | null;
+    } | null;
+  } | null;
+};
+
+function cleanText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+// Extrai o que a API de pagamentos (gratuita) devolver sobre quem pagou. Os
+// campos variam por meio de pagamento; ausência de dados não é erro.
+export function payerFromPayment(payment: PaymentLookup) {
+  const bankPayer = payment.point_of_interaction?.transaction_data?.bank_info?.payer;
+  const fullName = [cleanText(payment.payer?.first_name), cleanText(payment.payer?.last_name)]
+    .filter(Boolean)
+    .join(" ");
+  const document = cleanText(payment.payer?.identification?.number)?.replace(/\D/g, "") || null;
+  return {
+    payer_name: cleanText(bankPayer?.account_holder_name) ?? (fullName || null),
+    payer_email: cleanText(payment.payer?.email)?.toLowerCase() ?? null,
+    payer_document: document,
+  };
+}
+
+async function storeStatementMovements(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  householdId: string,
+  fileName: string,
+  movements: StatementMovement[],
+) {
+  for (let index = 0; index < movements.length; index += 200) {
+    const batch = movements.slice(index, index + 200).map((movement) => ({
+      ...movement,
+      household_id: householdId,
+      report_file: fileName,
+      // Só entradas com id numérico podem ser consultadas na API de pagamentos.
+      payer_lookup_status:
+        movement.net_credit > 0 && movement.source_id && /^\d+$/.test(movement.source_id)
+          ? "pending"
+          : "skipped",
+    }));
+    const { error } = await supabase
+      .from("wallet_movements")
+      .upsert(batch, { onConflict: "household_id,movement_key", ignoreDuplicates: true });
+    if (error) throw new Error(`Falha ao salvar o extrato: ${error.message}`);
+  }
+}
+
+export async function lookupPendingPayers(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  householdId: string,
+  limit = PAYER_LOOKUPS_PER_SYNC,
+) {
+  const { data: pending, error } = await supabase
+    .from("wallet_movements")
+    .select("id,source_id")
+    .eq("household_id", householdId)
+    .eq("payer_lookup_status", "pending")
+    .order("occurred_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  let found = 0;
+  for (const movement of pending ?? []) {
+    const response = await mercadoPagoFetch(
+      `/v1/payments/${encodeURIComponent(movement.source_id ?? "")}`,
+    ).catch(() => null);
+    // 404/403: transferência sem pagamento consultável. Erros 5xx e timeouts
+    // ficam pendentes para a próxima sincronização.
+    if (!response) continue;
+    if (!response.ok) {
+      if (response.status >= 500 || response.status === 429) continue;
+      await supabase
+        .from("wallet_movements")
+        .update({ payer_lookup_status: "unavailable" })
+        .eq("id", movement.id);
+      continue;
+    }
+    const payer = payerFromPayment((await response.json()) as PaymentLookup);
+    const hasPayer = Boolean(payer.payer_name || payer.payer_email || payer.payer_document);
+    await supabase
+      .from("wallet_movements")
+      .update({ ...payer, payer_lookup_status: hasPayer ? "found" : "unavailable" })
+      .eq("id", movement.id);
+    if (hasPayer) found += 1;
+  }
+  return { checked: pending?.length ?? 0, found };
 }
 
 export async function syncLatestMercadoPagoReport(
@@ -393,6 +561,7 @@ export async function syncLatestMercadoPagoReport(
 
     if (needsImport) {
       const result = await downloadAndCalculateBalance(fileName);
+      await storeStatementMovements(supabase, householdId, fileName, result.movements);
       // `observed_at` representa até quando o relatório conferiu o saldo.
       // A última movimentação pode ser muito mais antiga e fica nos metadados.
       const observedAt =
@@ -477,9 +646,18 @@ export async function syncLatestMercadoPagoReport(
     }
   }
 
+  // Identificar pagadores é complementar: uma falha aqui não invalida o saldo.
+  let payerLookup: { checked: number; found: number } | null = null;
+  try {
+    payerLookup = await lookupPendingPayers(supabase, householdId);
+  } catch (error) {
+    console.error("[mercado-pago] consulta de pagadores", error);
+  }
+
   return {
     imported,
     balance,
+    payerLookup,
     reportsFound: tasks.length,
     readyReportsFound: reports.length,
     requested,

@@ -41,7 +41,7 @@ Aplicação privada para gerenciar as despesas, pagamentos e rotinas de limpeza 
 1. Crie um projeto em `supabase.com`.
 2. Abra **SQL Editor**.
 3. Copie e execute as migrations em ordem numérica. Em um banco novo, rode
-   `001_initial.sql` até `035_storage_usage_monitoring.sql`. Em um banco já
+   `001_initial.sql` até `037_wallet_statement_reconciliation.sql`. Em um banco já
    existente, aplique somente as migrations ainda pendentes, sem pular números.
 
 O schema inicial começa em:
@@ -735,3 +735,63 @@ supabase/migrations/035_storage_usage_monitoring.sql
 Projetos gratuitos são pausados depois de uma semana sem atividade; os crons
 diários acessam o banco e evitam a pausa. Confira os números atuais em
 **Supabase → Project Settings → Usage**, pois as cotas podem mudar.
+
+## Atualização: acesso por morador e conta da casa
+
+Aplique, nesta ordem, **antes** do deploy:
+
+```text
+supabase/migrations/036_granular_access_control.sql
+supabase/migrations/037_wallet_statement_reconciliation.sql
+```
+
+### Acesso dos moradores (`/app/configuracoes/permissoes`)
+
+Somente o administrador abre esta tela. Para cada morador ativo ele define:
+
+- **Funcionalidades** (17, em 6 grupos): despesas (cadastrar, excluir, marcar
+  pagas, registrar sem comprovante), conta da casa (ver, sincronizar e
+  conciliar), compras (lista, acertos, tarefas), Casa em dia (escala,
+  lavanderia, galão, fogão/louça, mapa), moradores e sistema (e-mails,
+  armazenamento).
+- **Páginas visíveis** (15). Páginas desmarcadas somem do menu e das abas; ao
+  abrir o endereço, a pessoa é levada à primeira página permitida.
+
+As regras valem também no banco: as funções SQL e as políticas RLS checam a
+permissão específica com `has_permission()`. Permissões novas começam
+desligadas, então nada que era exclusivo do administrador foi liberado. Cada
+alteração é registrada em `system_events` (`profile_access_updated`). Editar
+permissões e o papel de administrador nunca é delegável; um trigger bloqueia
+essas colunas para quem não é administrador. Isso também fecha uma brecha antiga:
+quem podia gerenciar moradores conseguia trocar o e-mail do morador
+administrador para o próprio e herdar o papel.
+
+O catálogo fica em `src/lib/permissions.ts`; ao criar uma permissão, inclua a
+chave também em `public.valid_permission_keys()`.
+
+### Conta da casa (`/app/financeiro`)
+
+Usa apenas recursos gratuitos do Mercado Pago:
+
+- **Extrato**: todas as movimentações do relatório de liberações, que já era
+  baixado só para calcular o saldo, com filtros por mês, entradas e saídas.
+- **Resumo mensal** dos últimos 6 meses.
+- **Quem pagou**: para cada entrada, a API de pagamentos (`GET /v1/payments/{id}`)
+  é consultada para obter nome, e-mail ou CPF do pagador, até 15 por
+  sincronização. Nem toda transferência traz esses dados.
+- **Conciliação**: sugere a quais parcelas cada Pix pertence (pelo e-mail ou CPF
+  cadastrado em Moradores → “Como paga no Mercado Pago”, pelo nome completo ou
+  pelo valor exato). Ao confirmar, as parcelas ficam pagas com o Pix como
+  comprovante; um Pix pode quitar várias parcelas e a conciliação pode ser
+  desfeita.
+
+Não implementado de propósito: gerar cobranças Pix/QR Code pela API tem tarifa
+por recebimento (cerca de 0,99%), e os webhooks só notificam cobranças criadas
+pela própria API. O relatório diário continua sendo a fonte gratuita.
+
+### Testes
+
+```bash
+npm run test:wallet        # sugestões de conciliação
+npm run test:cron-routing  # rotas de cron
+```

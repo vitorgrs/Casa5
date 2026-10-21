@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CartIcon, ChecklistIcon, PlusIcon } from "@/components/icons";
-import { can, requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import { currency, formatHouseTimestamp } from "@/lib/format";
 import {
   ShoppingItemCreateForm,
@@ -51,9 +51,9 @@ export default async function OrganizacaoPage({
   const purchaseFrom = (purchasePage - 1) * PURCHASES_PER_PAGE;
   const purchaseTo = purchaseFrom + PURCHASES_PER_PAGE - 1;
   const baseRoute = "/app/organizacao";
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("shopping");
   const canManageTasks = can(profile, "manage_tasks");
-  const canManageShopping = profile.role === "admin";
+  const canManageShopping = can(profile, "manage_shopping");
 
   let matchingPurchaseIds: string[] | null = null;
   if (purchaseSearch) {

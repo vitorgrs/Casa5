@@ -1,5 +1,5 @@
 import { MessageIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { requirePage } from "@/lib/auth";
 import { ComplaintForm } from "./complaint-form";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export default async function ComplaintsPage({
   }>;
 }) {
   const params = await searchParams;
-  const { supabase } = await requireActiveProfile();
+  const { supabase } = await requirePage("complaints");
   const { data, error } = await supabase.rpc("list_my_anonymous_complaints");
   const complaints = ((data ?? []) as Complaint[]).sort(
     (first, second) =>

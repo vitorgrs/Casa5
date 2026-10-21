@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { canSeePage } from "@/lib/permissions";
 import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
 import { CalendarIcon, CheckIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
-import { can, requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import {
   addDays,
   dateIsInActiveSwap,
@@ -76,7 +77,7 @@ export default async function ChoresPage({
     isIsoDate(params.day) && params.day.startsWith(`${month}-`) ? params.day : null;
   const today = todayIso();
   const baseRoute = `/app/limpeza?month=${month}`;
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("chores");
   const canManageTasks = can(profile, "manage_tasks");
 
   const [
@@ -190,7 +191,8 @@ export default async function ChoresPage({
     selectedDay &&
       selectedOwner &&
       selectedDay <= today &&
-      (profile.role === "admin" || profile.member_id === selectedOwner.id),
+      (can(profile, "manage_daily_rotation") ||
+        profile.member_id === selectedOwner.id),
   );
   const canRequestSelectedDaySwap = Boolean(
     selectedDay &&
@@ -229,7 +231,8 @@ export default async function ChoresPage({
           </p>
         </div>
         <div className="page-actions">
-          {profile.role === "admin" && (
+          {can(profile, "manage_daily_rotation") &&
+            canSeePage(profile, "daily_rotation_admin") && (
             <Link className="button secondary" href="/app/limpeza/rotina">
               <SettingsIcon /> Administrar rotina
             </Link>
@@ -237,7 +240,7 @@ export default async function ChoresPage({
         </div>
       </div>
 
-      <CasaEmDiaTabs active="tarefas" />
+      <CasaEmDiaTabs active="tarefas" profile={profile} />
 
       {params.success && <div className="message success">{params.success}</div>}
       {params.error && <div className="message error">{params.error}</div>}

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { requireActiveProfile, requireAdmin } from "@/lib/auth";
+import { requireActiveProfile, requirePermission } from "@/lib/auth";
 import type { FormActionState } from "@/lib/form-action-state";
 
 const DISH_RACK_ACTION_TIMEOUT_MS = 15_000;
@@ -27,7 +27,7 @@ export async function changeDishRackCleaningTurn(
 ): Promise<FormActionState> {
   const signal = AbortSignal.timeout(DISH_RACK_ACTION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_stove_dish", signal);
     const memberId = String(formData.get("member_id") ?? "");
     const note = String(formData.get("note") ?? "").trim();
 

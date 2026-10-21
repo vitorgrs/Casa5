@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { StatusPill } from "@/components/status-pill";
 import { CalendarIcon, ChecklistIcon, UsersIcon, WalletIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import { todayIso } from "@/lib/chore-rotation";
 import {
   asNumber,
@@ -56,7 +56,7 @@ export default async function MyPage({
   searchParams: Promise<{ success?: string }>;
 }) {
   const params = await searchParams;
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("me");
 
   if (!profile.member_id) {
     return (
@@ -125,7 +125,7 @@ export default async function MyPage({
 
   let adminPendingShoppingShares: Array<Record<string, any>> = [];
   let adminSettlementPayments: SettlementPaymentRow[] = [];
-  if (profile.role === "admin") {
+  if (can(profile, "manage_shopping_settlements")) {
     const [{ data: pendingShares }, { data: settlementPayments }] = await Promise.all([
       supabase
         .from("shopping_purchase_shares")
@@ -618,11 +618,11 @@ export default async function MyPage({
                             : "Depois de confirmar, este acerto será totalmente quitado."}
                         </span>
                       </div>
-                      {(account.net < 0 || profile.role === "admin") && (
+                      {(account.net < 0 || can(profile, "manage_shopping_settlements")) && (
                         <ShoppingPaymentConfirmationForm
                           paymentId={pendingPayment.id}
                           redirectTo="/app/eu"
-                          label={profile.role === "admin" ? "Confirmar como administrador" : "Confirmar pagamento"}
+                          label={account.net < 0 ? "Confirmar pagamento" : "Confirmar em nome do morador"}
                         />
                       )}
                     </div>
@@ -684,7 +684,7 @@ export default async function MyPage({
           </details>
         </section>
 
-        {profile.role === "admin" && (
+        {can(profile, "manage_shopping_settlements") && (
           <section className="card">
             <div className="card-head">
               <div>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
 import { CalendarIcon, LaundryIcon, SettingsIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import { addDays, formatHouseDate, isIsoDate, todayIso } from "@/lib/chore-rotation";
 import {
   laundryAssignmentsForDate,
@@ -52,7 +52,7 @@ export default async function LaundryCalendarPage({
   const monthEnd = `${month}-${pad(daysInMonth)}`;
   const selectedDay =
     isIsoDate(params.day) && params.day.startsWith(`${month}-`) ? params.day : null;
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("laundry");
 
   const [
     { data: versionRows },
@@ -158,7 +158,7 @@ export default async function LaundryCalendarPage({
             e as lavagens coletivas da casa.
           </p>
         </div>
-        {profile.role === "admin" && (
+        {can(profile, "manage_laundry") && (
           <div className="page-actions">
             <Link className="button secondary" href="/app/limpeza/lavanderia/configuracoes">
               <SettingsIcon /> Configurar lavanderia
@@ -167,7 +167,7 @@ export default async function LaundryCalendarPage({
         )}
       </div>
 
-      <CasaEmDiaTabs active="lavanderia" />
+      <CasaEmDiaTabs active="lavanderia" profile={profile} />
 
       {params.success && <div className="message success">{params.success}</div>}
       {params.error && <div className="message error">{params.error}</div>}

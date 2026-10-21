@@ -8,7 +8,7 @@ import {
   WaterIcon,
 } from "@/components/icons";
 import { StatusPill } from "@/components/status-pill";
-import { can, requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import {
   addDays,
   formatHouseDate,
@@ -53,7 +53,7 @@ function formatHouseTimestamp(value: string) {
 }
 
 export default async function DashboardPage() {
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("overview");
   const canViewWallet = can(profile, "view_wallet_balance");
   const referenceMonth = dashboardMonth();
   const monthDate = new Date(`${referenceMonth}T00:00:00.000Z`);

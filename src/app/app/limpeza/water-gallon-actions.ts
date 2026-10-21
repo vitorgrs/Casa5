@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { isIsoDate, todayIso } from "@/lib/chore-rotation";
 import type { FormActionState } from "@/lib/form-action-state";
 
@@ -25,7 +25,7 @@ export async function saveWaterGallonRotation(
   formData: FormData,
 ): Promise<FormActionState> {
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_water");
     const memberIds = formData.getAll("member_ids").map(String).filter(Boolean);
     if (memberIds.length === 0 || new Set(memberIds).size !== memberIds.length) {
       return {
@@ -52,7 +52,7 @@ export async function changeWaterGallonTurn(
   formData: FormData,
 ): Promise<FormActionState> {
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_water");
     const memberId = String(formData.get("member_id") ?? "");
     const note = String(formData.get("note") ?? "").trim();
     if (!memberId) {
@@ -80,7 +80,7 @@ export async function recordWaterGallonManualPayment(
   formData: FormData,
 ): Promise<FormActionState> {
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_water");
     const paymentDate = String(formData.get("paid_on") ?? "");
     const expectedMemberId = String(formData.get("expected_member_id") ?? "");
     const note = String(formData.get("note") ?? "").trim();
@@ -116,7 +116,7 @@ export async function reviewWaterGallonPurchase(
   formData: FormData,
 ): Promise<FormActionState> {
   try {
-    const { supabase } = await requireAdmin();
+    const { supabase } = await requirePermission("manage_water");
     const purchaseId = String(formData.get("purchase_id") ?? "");
     const decision = String(formData.get("decision") ?? "");
     if (!purchaseId || !["confirm", "reject"].includes(decision)) {

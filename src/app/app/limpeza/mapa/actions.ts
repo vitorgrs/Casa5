@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { requireActiveProfile, requireAdmin } from "@/lib/auth";
+import { requireActiveProfile, requirePermission } from "@/lib/auth";
 import { isIsoDate, todayIso } from "@/lib/chore-rotation";
 import type { FormActionState } from "@/lib/form-action-state";
 import { isHouseCleaningAreaSlug } from "@/lib/house-cleaning";
@@ -43,7 +43,7 @@ export async function initializeHouseCleaningMap(
 ): Promise<FormActionState> {
   const signal = AbortSignal.timeout(HOUSE_CLEANING_ACTION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_house_map", signal);
     const { error } = await supabase
       .rpc("initialize_house_cleaning_map")
       .abortSignal(signal);
@@ -116,7 +116,7 @@ export async function saveHouseCleaningRotation(
 
   const signal = AbortSignal.timeout(HOUSE_CLEANING_ACTION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_house_map", signal);
     const { error } = await supabase
       .rpc("set_house_cleaning_rotation", {
         target_area_slug: areaSlug,
@@ -165,7 +165,7 @@ export async function changeHouseCleaningTurn(
 
   const signal = AbortSignal.timeout(HOUSE_CLEANING_ACTION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_house_map", signal);
     const { error } = await supabase
       .rpc("set_house_cleaning_current_member", {
         target_area_slug: areaSlug,

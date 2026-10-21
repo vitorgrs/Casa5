@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireActiveProfile, requireAdmin } from "@/lib/auth";
+import { requireActiveProfile, requirePermission } from "@/lib/auth";
 import { isIsoDate } from "@/lib/chore-rotation";
 
 function destination(formData: FormData, fallback: string) {
@@ -29,7 +29,7 @@ function refreshRotationPages() {
 
 export async function saveDailyRotation(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza/rotina");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("manage_daily_rotation");
   const startDate = String(formData.get("start_date") ?? "");
   const memberIds = formData.getAll("member_ids").map(String).filter(Boolean);
 
@@ -68,7 +68,7 @@ export async function requestDaySwap(formData: FormData) {
 
 export async function reviewDaySwap(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza/rotina");
-  const { supabase } = await requireAdmin();
+  const { supabase } = await requirePermission("manage_daily_rotation");
   const requestId = String(formData.get("request_id") ?? "");
   const decision = String(formData.get("decision") ?? "reject");
 
@@ -113,7 +113,7 @@ export async function toggleDailyTaskCompletion(formData: FormData) {
 
 export async function createStandardDailyTask(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza/rotina");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_daily_rotation");
   const label = String(formData.get("label") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
 
@@ -151,7 +151,7 @@ export async function createStandardDailyTask(formData: FormData) {
 
 export async function updateStandardDailyTask(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza/rotina");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_daily_rotation");
   const taskKey = String(formData.get("task_key") ?? "");
   const label = String(formData.get("label") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
@@ -180,7 +180,7 @@ export async function updateStandardDailyTask(formData: FormData) {
 
 export async function setStandardDailyTaskActive(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza/rotina");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_daily_rotation");
   const taskKey = String(formData.get("task_key") ?? "");
   const active = String(formData.get("active") ?? "0") === "1";
 
@@ -209,7 +209,7 @@ export async function setStandardDailyTaskActive(formData: FormData) {
 
 export async function moveStandardDailyTask(formData: FormData) {
   const returnTo = destination(formData, "/app/limpeza/rotina");
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePermission("manage_daily_rotation");
   const taskKey = String(formData.get("task_key") ?? "");
   const direction = String(formData.get("direction") ?? "") === "up" ? -1 : 1;
 

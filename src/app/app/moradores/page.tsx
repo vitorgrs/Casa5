@@ -1,17 +1,23 @@
 import { StatusPill } from "@/components/status-pill";
 import { UsersIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
-import { can, requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import { linkPendingProfile, updateMemberEmail } from "./actions";
 
-export default async function MembersPage() {
+export default async function MembersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const params = await searchParams;
   const baseRoute = "/app/moradores";
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("members");
   const canManageMembers = can(profile, "manage_members");
   const [{ data: members }, { data: profiles }] = await Promise.all([
     supabase
       .from("household_members")
-      .select("id,name,email,pix_key,initials,color_key,is_admin,display_order,active")
+      // `*` inclui payer_identifiers quando a migration 037 já foi aplicada.
+      .select("*")
       .eq("household_id", profile.household_id)
       .order("display_order"),
     supabase
@@ -34,9 +40,11 @@ export default async function MembersPage() {
           </p>
         </div>
         <div className="role-chip">
-          <UsersIcon /> 5 moradores
+          <UsersIcon /> {(members ?? []).filter((member) => member.active).length} moradores
         </div>
       </div>
+
+      {params.error && <div className="message error">{params.error}</div>}
 
       <div className="member-grid">
         {(members ?? []).map((member) => {
@@ -85,6 +93,17 @@ export default async function MembersPage() {
                       placeholder="CPF, e-mail, telefone ou chave aleatória"
                     />
                   </label>
+                  <label>
+                    Como paga no Mercado Pago
+                    <input
+                      name="payer_identifiers"
+                      defaultValue={(member.payer_identifiers ?? []).join(", ")}
+                      placeholder="E-mails ou CPFs, separados por vírgula"
+                    />
+                    <small className="muted-text">
+                      Usado só para sugerir de quem é cada Pix em Conta da casa.
+                    </small>
+                  </label>
                   <SubmitButton className="button secondary small" pendingLabel="Salvando...">
                     Salvar dados
                   </SubmitButton>
@@ -106,9 +125,9 @@ export default async function MembersPage() {
           <StatusPill status="pending" />
         </div>
         <div className="card-body">
-          {profile.role !== "admin" ? (
+          {!canManageMembers ? (
             <div className="empty">
-              Somente o Vitor pode liberar novos acessos.
+              Você não tem permissão para liberar novos acessos.
             </div>
           ) : (
             <div className="pending-list">

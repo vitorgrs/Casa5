@@ -1,6 +1,6 @@
 import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
 import { WaterIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import {
   WaterGallonManager,
   type WaterGallonPayment,
@@ -10,7 +10,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function WaterGallonPage() {
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("water");
 
   const [
     { data: members, error: membersError },
@@ -95,7 +95,7 @@ export default async function WaterGallonPage() {
         </div>
       </div>
 
-      <CasaEmDiaTabs active="agua" />
+      <CasaEmDiaTabs active="agua" profile={profile} />
 
       <WaterGallonManager
         initialMembers={rotationMembers.map(
@@ -105,7 +105,7 @@ export default async function WaterGallonPage() {
         currentSince={settings?.current_since ?? null}
         suggestions={(suggestions ?? []) as WaterGallonSuggestion[]}
         payments={(payments ?? []) as WaterGallonPayment[]}
-        canManage={profile.role === "admin"}
+        canManage={can(profile, "manage_water")}
         configurationReady={configurationReady}
         loadError={
           loadError

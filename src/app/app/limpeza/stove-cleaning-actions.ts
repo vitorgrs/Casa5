@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
-import { requireActiveProfile, requireAdmin } from "@/lib/auth";
+import { requireActiveProfile, requirePermission } from "@/lib/auth";
 import type { FormActionState } from "@/lib/form-action-state";
 
 const STOVE_ACTION_TIMEOUT_MS = 15_000;
@@ -30,7 +30,7 @@ export async function saveStoveCleaningRotation(
 ): Promise<FormActionState> {
   const signal = AbortSignal.timeout(STOVE_ACTION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_stove_dish", signal);
     const memberIds = formData.getAll("member_ids").map(String).filter(Boolean);
 
     if (memberIds.length < 2) {
@@ -71,7 +71,7 @@ export async function changeStoveCleaningTurn(
 ): Promise<FormActionState> {
   const signal = AbortSignal.timeout(STOVE_ACTION_TIMEOUT_MS);
   try {
-    const { supabase } = await requireAdmin(signal);
+    const { supabase } = await requirePermission("manage_stove_dish", signal);
     const memberId = String(formData.get("member_id") ?? "");
     const note = String(formData.get("note") ?? "").trim();
 

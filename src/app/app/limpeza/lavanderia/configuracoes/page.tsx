@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowIcon, LaundryIcon, SettingsIcon } from "@/components/icons";
-import { requireAdmin } from "@/lib/auth";
+import { requirePage } from "@/lib/auth";
 import { addDays, formatHouseDate, todayIso } from "@/lib/chore-rotation";
 import {
   laundryAssignmentsForDate,
@@ -23,7 +23,10 @@ export default async function LaundrySettingsPage({
   searchParams: Promise<{ success?: string; error?: string; updated?: string }>;
 }) {
   const params = await searchParams;
-  const { profile, supabase } = await requireAdmin();
+  const { profile, supabase } = await requirePage("laundry", {
+    permission: "manage_laundry",
+    fallback: "/app/limpeza/lavanderia",
+  });
   const today = todayIso();
   const [
     { data: versionRows },

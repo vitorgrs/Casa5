@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requireActiveProfile } from "@/lib/auth";
 import { signedReceiptUrl } from "@/lib/storage";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -29,7 +29,7 @@ export async function GET(
     !validReceiptPath ||
     !purchase ||
     purchase.household_id !== profile.household_id ||
-    (profile.role !== "admin" &&
+    (!can(profile, "manage_shopping_settlements") &&
       profile.member_id !== share.member_id &&
       profile.member_id !== purchase.paid_by_member_id)
   ) {

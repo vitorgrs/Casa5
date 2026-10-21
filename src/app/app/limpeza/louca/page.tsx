@@ -1,6 +1,6 @@
 import { CasaEmDiaTabs } from "@/components/casa-em-dia-tabs";
 import { DishIcon } from "@/components/icons";
-import { requireActiveProfile } from "@/lib/auth";
+import { can, requirePage } from "@/lib/auth";
 import {
   StoveCleaningManager,
   type StoveCleaningHistoryEntry,
@@ -10,7 +10,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function DishRackCleaningPage() {
-  const { profile, supabase } = await requireActiveProfile();
+  const { profile, supabase } = await requirePage("dish_rack");
 
   // A ordem vem do rodízio do fogão; pessoa da vez e histórico são próprios.
   const [
@@ -89,7 +89,7 @@ export default async function DishRackCleaningPage() {
         </div>
       </div>
 
-      <CasaEmDiaTabs active="louca" />
+      <CasaEmDiaTabs active="louca" profile={profile} />
 
       <StoveCleaningManager
         variant="dish-rack"
@@ -99,7 +99,7 @@ export default async function DishRackCleaningPage() {
         currentSince={settings?.current_since ?? null}
         currentTurnNumber={settings?.turn_number ?? null}
         history={(history ?? []) as StoveCleaningHistoryEntry[]}
-        canManage={profile.role === "admin"}
+        canManage={can(profile, "manage_stove_dish")}
         configurationReady={configurationReady}
         loadError={
           loadError
