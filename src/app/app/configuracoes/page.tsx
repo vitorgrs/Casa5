@@ -169,7 +169,7 @@ export default async function SettingsPage({
             <div className="card-head">
               <div>
                 <h2>Histórico de saldo</h2>
-                <span className="muted-text" style={{ fontSize: 10 }}>
+                <span className="muted-text card-subtitle">
                   Snapshots preservam o valor observado em cada sincronização.
                 </span>
               </div>

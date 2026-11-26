@@ -33,7 +33,7 @@
 
 .eyebrow {
   color: var(--violet-2);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 850;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -46,7 +46,7 @@
   border-radius: 999px;
   color: #d8ccff;
   background: rgba(139, 92, 246, 0.08);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 750;
 }
 
@@ -77,7 +77,7 @@
 
 .initializeBanner span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -201,7 +201,7 @@
   color: #fff;
   background: rgba(12, 16, 27, 0.88);
   box-shadow: 0 5px 18px rgba(0, 0, 0, 0.24);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
@@ -239,7 +239,7 @@
 .mapFigure figcaption {
   margin-top: 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
   text-align: center;
 }
@@ -293,12 +293,12 @@
 }
 
 .roomButton strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .roomButton small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .roomButton:hover,
@@ -346,7 +346,7 @@
   border-radius: 999px;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.035);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -408,7 +408,7 @@
 
 .turnIdentity small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
   line-height: 1.45;
 }
 
@@ -423,7 +423,7 @@
 
 .ruleText small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
   line-height: 1.45;
 }
 
@@ -435,7 +435,7 @@
 .avatarStack > span {
   width: 36px;
   height: 36px;
-  font-size: 9px;
+  font-size: 11px;
   box-shadow: 0 0 0 3px var(--panel-2);
 }
 
@@ -457,12 +457,12 @@
 .latestCleaning span,
 .latestCleaning small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .latestCleaning strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
 }
 
@@ -489,7 +489,7 @@
 
 .formIntro small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -505,7 +505,7 @@
 .cleanerPicker legend {
   margin-bottom: 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -513,7 +513,7 @@
 .permissionHint {
   margin: 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -534,7 +534,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.02);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -552,7 +552,7 @@
 .cleanerOption > :global(.avatar) {
   width: 30px;
   height: 30px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .cleanerOption > span:last-child {
@@ -593,7 +593,7 @@
 .areaEmpty p {
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 
@@ -607,7 +607,7 @@
   padding: 13px 14px;
   cursor: pointer;
   color: #d8ccff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 750;
   list-style-position: inside;
 }
@@ -655,7 +655,7 @@
   align-items: center;
   gap: 8px;
   color: #cbd1df;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 650;
   line-height: 1.4;
 }
@@ -686,12 +686,12 @@
 .orderRow > :global(.avatar) {
   width: 31px;
   height: 31px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .orderPosition {
   color: var(--violet-2);
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 850;
   text-align: center;
 }
@@ -710,12 +710,12 @@
 }
 
 .orderMemberName strong {
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .orderMemberName small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .orderActions {
@@ -745,7 +745,7 @@
   border: 1px dashed var(--line);
   border-radius: 10px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
   text-align: center;
 }
 
@@ -782,12 +782,12 @@
 }
 
 .stoveManageLink strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .stoveManageLink small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -799,7 +799,7 @@
 .history > summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
 }
 
 .historyList {
@@ -833,19 +833,19 @@
 }
 
 .historyRow strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .historyRow small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
   line-height: 1.4;
 }
 
 .emptyHistory {
   padding: 13px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11.5px;
   text-align: center;
 }
 
@@ -879,7 +879,7 @@
   max-width: 340px;
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
 }
 

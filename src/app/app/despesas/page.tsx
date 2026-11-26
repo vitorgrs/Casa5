@@ -258,6 +258,36 @@ export default async function ExpensesPage({
                               Pago: {currency.format(paidAmount)}
                             </span>
                           )}
+                        </div>
+                        {share.receipt_path && (
+                          <div className="attachment-row">
+                              <span>📎 {share.receipt_name ?? "comprovante"}</span>
+                              <a
+                                href={`/app/despesas/anexos/parcela/${share.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Ver
+                              </a>
+                              {(profile.member_id === share.member_id || canManageExpenses) &&
+                                share.payment_status !== "paid" && (
+                                <form action={deleteShareReceipt}>
+                                  <input type="hidden" name="share_id" value={share.id} />
+                                  <input type="hidden" name="redirect_to" value={baseRoute} />
+                                  <button className="button ghost small" type="submit">
+                                    Remover
+                                  </button>
+                                </form>
+                              )}
+                            </div>
+                        )}
+                        {(can(profile, "record_payments_without_receipt") ||
+                          canMarkPaid ||
+                          (!share.receipt_path &&
+                            (profile.member_id === share.member_id || canManageExpenses))) && (
+                          <details className="disclosure share-manage">
+                            <summary>{isPaid ? "Gerenciar pagamento" : "Registrar pagamento"}</summary>
+                            <div className="disclosure-body share-manage-body">
                           {can(profile, "record_payments_without_receipt") ? (
                             <div className="admin-expense-payment-control">
                               <form action={setExpensePaymentAsAdmin}>
@@ -308,38 +338,16 @@ export default async function ExpensesPage({
                               isPaid={isPaid}
                             />
                           ) : null}
-                        </div>
-                        <div style={{ marginTop: 8 }}>
-                          {share.receipt_path ? (
-                            <div className="attachment-row">
-                              <span>📎 {share.receipt_name ?? "comprovante"}</span>
-                              <a
-                                href={`/app/despesas/anexos/parcela/${share.id}`}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Ver
-                              </a>
-                              {(profile.member_id === share.member_id || canManageExpenses) &&
-                                share.payment_status !== "paid" && (
-                                <form action={deleteShareReceipt}>
-                                  <input type="hidden" name="share_id" value={share.id} />
-                                  <input type="hidden" name="redirect_to" value={baseRoute} />
-                                  <button className="button ghost small" type="submit">
-                                    Remover
-                                  </button>
-                                </form>
-                              )}
-                            </div>
-                          ) : (
+                              {!share.receipt_path &&
                             (profile.member_id === share.member_id || canManageExpenses || canMarkPaid) && (
                               <AttachmentUploadForm
                                 target={{ kind: "share_receipt", id: share.id }}
                                 label="Anexar comprovante"
                               />
-                            )
-                          )}
-                        </div>
+                            )}
+                            </div>
+                          </details>
+                        )}
                         {share.reimbursement_status !== "not_applicable" && (
                           <div className="share-actions" style={{ marginTop: 6 }}>
                             <span

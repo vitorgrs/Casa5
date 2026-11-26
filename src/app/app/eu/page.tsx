@@ -514,7 +514,7 @@ export default async function MyPage({
           <div className="card-head">
             <div>
               <h2>Acertos de compras — em aberto</h2>
-              <span className="muted-text" style={{ fontSize: 10 }}>
+              <span className="muted-text card-subtitle">
                 Envie o comprovante por aqui. O recebedor ou o administrador
                 só poderá marcar como pago depois que o arquivo for anexado.
               </span>
@@ -546,6 +546,8 @@ export default async function MyPage({
                     </span>
                   </div>
 
+                  <details className="disclosure netting-details">
+                  <summary>Como esse valor foi calculado</summary>
                   <div className="netting-explanation">
                     <span>Você deve a {account.memberName}: <strong>{currency.format(account.grossOutgoing)}</strong></span>
                     <span>{account.memberName} deve a você: <strong>{currency.format(account.grossIncoming)}</strong></span>
@@ -561,6 +563,7 @@ export default async function MyPage({
                           : "As dívidas têm o mesmo valor e se compensam totalmente. Ninguém precisa fazer Pix."}
                     </p>
                   </div>
+                  </details>
 
                   {account.net > 0 && (
                     <div className="purchase-payer">
@@ -689,17 +692,20 @@ export default async function MyPage({
             <div className="card-head">
               <div>
                 <h2>Administração dos acertos — em aberto</h2>
-                <span className="muted-text" style={{ fontSize: 10 }}>
+                <span className="muted-text card-subtitle">
                   Informe o valor pago e dê baixa diretamente, mesmo sem
                   comprovante. Os moradores continuam enviando o arquivo normalmente.
                 </span>
               </div>
               <UsersIcon />
             </div>
-            <div className="purchase-list">
-              {adminNetShoppingAccounts.length === 0 && (
-                <div className="empty">Nenhum acerto entre moradores está pendente.</div>
-              )}
+            {adminNetShoppingAccounts.length === 0 && (
+              <div className="empty">Nenhum acerto entre moradores está pendente.</div>
+            )}
+            {adminNetShoppingAccounts.length > 0 && (
+            <details className="disclosure card-inset">
+            <summary>Ver {adminNetShoppingAccounts.length} acerto(s) entre moradores</summary>
+            <div className="purchase-list disclosure-body">
               {adminNetShoppingAccounts.map((account) => {
                 const pairKey = `${account.firstMember.id}:${account.secondMember.id}`;
                 return (
@@ -815,6 +821,8 @@ export default async function MyPage({
                 );
               })}
             </div>
+            </details>
+            )}
 
             <details className="details-editor" style={{ margin: "0 20px 16px" }}>
               <summary>Fechados de todos ({adminClosedPayments.length})</summary>
@@ -862,7 +870,7 @@ export default async function MyPage({
           <div className="card-head">
             <div>
               <h2>Suas despesas por mês</h2>
-              <span className="muted-text" style={{ fontSize: 10 }}>
+              <span className="muted-text card-subtitle">
                 As parcelas ainda não pagas aparecem destacadas.
               </span>
             </div>
@@ -870,14 +878,22 @@ export default async function MyPage({
           </div>
           <div className="list">
             {sortedMonths.length === 0 && <div className="empty">Nenhuma despesa encontrada nos últimos meses.</div>}
-            {sortedMonths.map((month) => {
+            {sortedMonths.map((month, monthIndex) => {
               const rows = grouped.get(month)!;
+              const monthHasUnpaid = rows.some(
+                (share) => !["paid", "waived"].includes(share.payment_status),
+              );
               return (
-                <div key={month} style={{ padding: "10px 20px" }}>
-                  <strong style={{ fontSize: 13 }}>
+                <details
+                  key={month}
+                  className="disclosure month-group"
+                  open={monthIndex === 0 || monthHasUnpaid}
+                >
+                  <summary>
                     {monthLabel.format(new Date(`${month}T00:00:00`))}
-                  </strong>
-                  <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                    {monthHasUnpaid && <span className="status-pill warning">Com pendência</span>}
+                  </summary>
+                  <div className="disclosure-body" style={{ display: "grid", gap: 8 }}>
                     {rows.map((share) => {
                       const expense = Array.isArray(share.expense) ? share.expense[0] : share.expense;
                       const isUnpaid = !["paid", "waived"].includes(share.payment_status);
@@ -918,7 +934,7 @@ export default async function MyPage({
                       );
                     })}
                   </div>
-                </div>
+                </details>
               );
             })}
           </div>
@@ -928,7 +944,7 @@ export default async function MyPage({
           <div className="card-head">
             <div>
               <h2>Suas tarefas de casa</h2>
-              <span className="muted-text" style={{ fontSize: 10 }}>
+              <span className="muted-text card-subtitle">
                 Vindas do calendário do Casa em dia.
               </span>
             </div>
@@ -965,7 +981,7 @@ export default async function MyPage({
           <div className="card-head">
             <div>
               <h2>Suas pendências gerais</h2>
-              <span className="muted-text" style={{ fontSize: 10 }}>
+              <span className="muted-text card-subtitle">
                 Tarefas delegadas a você em Compras (inclui pedidos de reembolso).
               </span>
             </div>

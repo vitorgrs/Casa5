@@ -845,3 +845,13 @@ e quem enviou pode cancelar enquanto estiver pendente.
   garantia, a mesma rotina roda na primeira abertura do app no dia e também
   passa a vez de quem saiu de casa em data agendada.
 - Notificações lidas há mais de 60 dias são apagadas automaticamente.
+
+### Interface
+
+- No celular, a barra inferior tem Início, Eu, Casa em dia, Compras e **Mais**
+  (demais páginas, notificações e sair). As abas do Casa em dia rolam na
+  própria barra, sem rolar a página para o lado.
+- Alvos de toque com 44 px, campos com 16 px (sem zoom no iOS), foco visível,
+  link "Pular para o conteúdo" e tipografia mínima legível.
+- Controles longos (pagamento de parcelas, explicação dos acertos, meses
+  antigos, edição de moradores) ficam recolhidos e abrem com um toque.
