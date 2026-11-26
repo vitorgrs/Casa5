@@ -1,3 +1,9 @@
+import {
+  firstAbsenceAffecting,
+  isMemberAway,
+  type MemberAbsence,
+} from "./member-absences.ts";
+
 export const HOUSE_TIME_ZONE = "America/Sao_Paulo";
 
 export type StandardDailyTask = {
@@ -65,11 +71,19 @@ export function formatHouseDate(iso: string, options?: Intl.DateTimeFormatOption
   }).format(dateFromIso(iso));
 }
 
+/**
+ * Responsável pela escala diária em uma data. A vez anda um morador por dia
+ * na ordem da escala e pula quem está fora de casa naquele dia; ao voltar, a
+ * pessoa retoma a mesma posição. Sem ausências o resultado é o mesmo do
+ * cálculo direto (dias desde o início módulo a quantidade de moradores).
+ * Espelha public.daily_rotation_assignee (migration 038).
+ */
 export function rotationMemberForDate(
   date: string,
   startDate: string | null,
   members: RotationMember[],
   swaps: RotationSwap[],
+  absences: readonly MemberAbsence[] = [],
 ) {
   if (!startDate || date < startDate || members.length === 0) return null;
 
@@ -86,8 +100,36 @@ export function rotationMemberForDate(
     return members.find((member) => member.id === assignedMemberId) ?? null;
   }
 
-  const offset = daysBetween(startDate, date) % members.length;
-  return members[offset] ?? null;
+  const firstAbsence = firstAbsenceAffecting(
+    new Set(members.map((member) => member.id)),
+    startDate,
+    date,
+    absences,
+  );
+  if (!firstAbsence) {
+    const offset = daysBetween(startDate, date) % members.length;
+    return members[offset] ?? null;
+  }
+
+  // Até a primeira ausência vale o cálculo direto; dali em diante a vez anda
+  // dia a dia.
+  let previousIndex =
+    firstAbsence > startDate
+      ? (daysBetween(startDate, firstAbsence) - 1) % members.length
+      : members.length - 1;
+  for (let day = firstAbsence; day <= date; day = addDays(day, 1)) {
+    let foundIndex: number | null = null;
+    for (let step = 1; step <= members.length; step += 1) {
+      const candidate = (previousIndex + step) % members.length;
+      if (!isMemberAway(members[candidate].id, day, absences)) {
+        foundIndex = candidate;
+        break;
+      }
+    }
+    if (day === date) return foundIndex === null ? null : members[foundIndex];
+    if (foundIndex !== null) previousIndex = foundIndex;
+  }
+  return null;
 }
 
 export function dateIsInActiveSwap(date: string, swaps: RotationSwap[]) {

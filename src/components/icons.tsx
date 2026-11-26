@@ -32,3 +32,7 @@ export const LaundryIcon = (props: IconProps) => <IconBase {...props}><rect x="4
 export const WaterIcon = (props: IconProps) => <IconBase {...props}><path d="M12 2.8S5.5 10 5.5 15.2a6.5 6.5 0 0 0 13 0C18.5 10 12 2.8 12 2.8Z"/><path d="M9 16.2a3.2 3.2 0 0 0 3 2.1"/></IconBase>;
 export const BankIcon = (props: IconProps) => <IconBase {...props}><path d="M3 10 12 4l9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 21h18"/></IconBase>;
 export const DishIcon = (props: IconProps) => <IconBase {...props}><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="3"/><path d="M2 4v6M4 4v6M2 7h2M3 10v10M22 4c-1.5 1-2 3-2 6h2v10"/></IconBase>;
+export const MenuIcon = (props: IconProps) => <IconBase {...props}><path d="M4 7h16M4 12h16M4 17h16"/></IconBase>;
+export const UserIcon = (props: IconProps) => <IconBase {...props}><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></IconBase>;
+export const AwayIcon = (props: IconProps) => <IconBase {...props}><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M2 21h20"/><path d="M12 12h.01"/><path d="m17 9 4 3-4 3"/></IconBase>;
+export const CloseIcon = (props: IconProps) => <IconBase {...props}><path d="M6 6l12 12M18 6 6 18"/></IconBase>;

@@ -6,12 +6,15 @@ import {
   type StoveCleaningHistoryEntry,
   type StoveCleaningMember,
 } from "../stove-cleaning-manager";
+import { todayIso } from "@/lib/chore-rotation";
+import { awayMemberIds, loadMemberAbsences } from "@/lib/member-absences";
 
 export const dynamic = "force-dynamic";
 
 export default async function StoveCleaningPage() {
   const { profile, supabase } = await requirePage("stove");
 
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     { data: members, error: membersError },
     { data: settings, error: settingsError },
@@ -44,6 +47,7 @@ export default async function StoveCleaningPage() {
       .order("id", { ascending: false })
       .limit(12),
   ]);
+  const absences = await absencesPromise;
 
   const availableMembers = (members ?? []) as StoveCleaningMember[];
   const memberById = new Map(
@@ -92,6 +96,7 @@ export default async function StoveCleaningPage() {
       <CasaEmDiaTabs active="fogao" profile={profile} />
 
       <StoveCleaningManager
+        awayMemberIds={[...awayMemberIds(todayIso(), absences)]}
         initialMembers={rotationMembers}
         availableMembers={availableMembers}
         currentMemberId={settings?.current_member_id ?? null}

@@ -8,6 +8,11 @@ import {
   ShoppingListManager,
   ShoppingPurchaseMutationForm,
 } from "./shopping-purchase-form";
+import {
+  MyPurchaseRequests,
+  PendingPurchaseRequests,
+  type PurchaseRequestRow,
+} from "./purchase-requests-panel";
 import { TaskCreateForm, TaskMutationForm } from "./task-forms";
 
 const purchaseScopeLabels: Record<string, string> = {
@@ -102,6 +107,26 @@ export default async function OrganizacaoPage({
   }
   legacyPurchaseQuery.order("bought_at", { ascending: false });
 
+  // Antes da migration 038 a tabela não existe; a página segue sem o painel.
+  const requestColumns =
+    "id,status,total_amount,items,purchase_scope,split_mode,participant_member_ids,custom_share_cents,note,review_note,created_at,requested_by_member_id";
+  const pendingRequestsPromise = canManageShopping
+    ? supabase
+        .from("shopping_purchase_requests")
+        .select(requestColumns)
+        .eq("household_id", profile.household_id)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+    : Promise.resolve({ data: [], error: null });
+  const myRequestsPromise = profile.member_id
+    ? supabase
+        .from("shopping_purchase_requests")
+        .select(requestColumns)
+        .eq("requested_by_member_id", profile.member_id)
+        .order("created_at", { ascending: false })
+        .limit(8)
+    : Promise.resolve({ data: [], error: null });
+
   const [
     { data: members },
     { data: tasks },
@@ -147,6 +172,18 @@ export default async function OrganizacaoPage({
         .is("purchase_id", null),
     ]);
 
+  const [pendingRequestsResult, myRequestsResult] = await Promise.all([
+    pendingRequestsPromise,
+    myRequestsPromise,
+  ]);
+  const pendingRequests = (pendingRequestsResult.data ?? []) as PurchaseRequestRow[];
+  const myRequests = (myRequestsResult.data ?? []) as PurchaseRequestRow[];
+  const requestsReady = !pendingRequestsResult.error && !myRequestsResult.error;
+  // Quem não gerencia compras envia para aprovação (precisa estar vinculado
+  // a um morador e a migration 038 precisa estar aplicada).
+  const canRequestPurchases = !canManageShopping && Boolean(profile.member_id) && requestsReady;
+  const memberOptions = (members ?? []).map((member) => ({ id: member.id, name: member.name }));
+
   const openTasks = (tasks ?? []).filter((t) =>
     (t.task_assignees ?? []).length === 0
       ? true
@@ -181,130 +218,79 @@ export default async function OrganizacaoPage({
           <span className="eyebrow">Compras</span>
           <h1>Compras da casa</h1>
           <p>
-            Organize a lista do mercado, informe valores previstos e registre
-            quem pagou cada compra.
+            {canManageShopping
+              ? "Organize a lista do mercado, registre quem pagou cada compra e aprove o que os moradores enviarem."
+              : "Consulte a lista do mercado e envie as compras que você fez para o administrador aprovar."}
           </p>
         </div>
-        <div className="role-chip">
-          <CartIcon /> Lista da casa
+        <div className="page-actions">
+          <a className="button primary" href="#lista-compras">
+            <CartIcon /> {canManageShopping ? "Registrar compra" : "Enviar compra"}
+          </a>
         </div>
       </div>
 
       {params.success && <div className="message success">{params.success}</div>}
 
-      <section className="card" style={{ marginTop: 16 }}>
-        <div className="card-head">
-          <div>
-            <h2>Tarefas delegadas</h2>
-            <span className="muted-text" style={{ fontSize: 10 }}>
-              Ex.: &quot;resolver a internet até dia 9&quot; ou &quot;todos devem trocar a roupa de cama até dia 20&quot;.
-            </span>
-          </div>
-          {canManageTasks && (
-            <Link className="button primary small" href={`${baseRoute}?nova=1`}>
-              <PlusIcon /> Nova tarefa
-            </Link>
-          )}
-        </div>
 
-        {params.nova === "1" && canManageTasks && (
-          <div style={{ padding: "0 20px 20px" }}>
-            <TaskCreateForm
-              members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
+      {canManageShopping && pendingRequests.length > 0 && (
+        <section className="card section-gap attention" id="aprovacoes" aria-labelledby="titulo-aprovacoes">
+          <div className="card-head">
+            <div>
+              <h2 id="titulo-aprovacoes">Aguardando sua aprovação ({pendingRequests.length})</h2>
+              <span className="muted-text card-subtitle">
+                Ao aprovar, a compra entra nos acertos com o rateio informado.
+              </span>
+            </div>
+          </div>
+          <div className="card-body">
+            <PendingPurchaseRequests
+              requests={pendingRequests}
+              members={memberOptions}
               redirectTo={baseRoute}
-              cancelHref={baseRoute}
             />
           </div>
-        )}
+        </section>
+      )}
 
-        <div className="list">
-          {openTasks.length === 0 && <div className="empty">Nenhuma pendência em aberto.</div>}
-          {openTasks.map((task) => (
-            <div className="list-row" key={task.id} style={{ flexWrap: "wrap" }}>
-              <div className="item-title">
-                <strong>{task.title}</strong>
-                <small>{task.description ?? ""}</small>
-              </div>
-              <div className="item-value">
-                <strong>
-                  {task.due_date
-                    ? new Date(`${task.due_date}T00:00:00`).toLocaleDateString("pt-BR")
-                    : "sem prazo"}
-                </strong>
-                <small>prazo</small>
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {(task.task_assignees ?? []).map((a) => {
-                  const member = Array.isArray(a.member) ? a.member[0] : a.member;
-                  return (
-                    <TaskMutationForm
-                      key={a.id}
-                      mode="toggle"
-                      assigneeId={a.id}
-                      done={!a.done}
-                      redirectTo={baseRoute}
-                      className={`button small ${a.done ? "secondary" : "ghost"}`}
-                      title={a.done ? "Marcar como pendente" : "Marcar como concluída"}
-                      label={`${a.done ? "✓ " : ""}${member?.name?.split(" ")[0] ?? "Morador"}`}
-                    />
-                  );
-                })}
-                {(task.task_assignees ?? []).length === 0 && (
-                  <span className="muted-text" style={{ fontSize: 12 }}>Sem responsável definido</span>
-                )}
-              </div>
-              {canManageTasks && (
-                <TaskMutationForm
-                  mode="delete"
-                  taskId={task.id}
-                  redirectTo={baseRoute}
-                  className="button danger small"
-                  label="Excluir"
-                />
-              )}
+      {myRequests.length > 0 && (
+        <section className="card section-gap" id="minhas-compras" aria-labelledby="titulo-minhas-compras">
+          <div className="card-head">
+            <div>
+              <h2 id="titulo-minhas-compras">Compras que você enviou</h2>
+              <span className="muted-text card-subtitle">Os 8 envios mais recentes.</span>
             </div>
-          ))}
-        </div>
+          </div>
+          <div className="card-body">
+            <MyPurchaseRequests requests={myRequests} members={memberOptions} redirectTo={baseRoute} />
+          </div>
+        </section>
+      )}
 
-        {doneTasks.length > 0 && (
-          <details className="details-editor" style={{ margin: "0 20px 16px" }}>
-            <summary>Ver {doneTasks.length} tarefa(s) concluída(s)</summary>
-            <div className="editor-body list">
-              {doneTasks.map((task) => (
-                <div className="list-row" key={task.id}>
-                  <div className="item-title">
-                    <strong>{task.title}</strong>
-                  </div>
-                  <span className="status-pill success">Concluída</span>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-      </section>
-
-      <section className="card" style={{ marginTop: 16 }}>
+      <section className="card section-gap" id="lista-compras" aria-labelledby="titulo-lista-compras">
         <div className="card-head">
           <div>
-            <h2>Lista de compras</h2>
-            <span className="muted-text" style={{ fontSize: 10 }}>
+            <h2 id="titulo-lista-compras">Lista de compras</h2>
+            <span className="muted-text card-subtitle">
               Total gasto registrado: {currency.format(totalSpent)}
             </span>
           </div>
           <CartIcon />
         </div>
 
-        {!canManageShopping && (
-          <div className="message info" style={{ margin: "0 20px 20px" }}>
-            A lista e os lançamentos de compras são somente para
-            visualização. Apenas o administrador pode alterá-los.
+        {!canManageShopping && !canRequestPurchases && (
+          <div className="message info card-inset">
+            A lista e os lançamentos de compras são somente para visualização.
           </div>
         )}
 
         {canManageShopping && (
-          <div style={{ padding: "0 20px 20px" }}>
-            <ShoppingItemCreateForm redirectTo={baseRoute} />
-          </div>
+          <details className="disclosure card-inset">
+            <summary><PlusIcon /> Adicionar item à lista</summary>
+            <div className="disclosure-body">
+              <ShoppingItemCreateForm redirectTo={baseRoute} />
+            </div>
+          </details>
         )}
 
         <div style={{ padding: "0 20px 8px" }}>
@@ -323,8 +309,10 @@ export default async function OrganizacaoPage({
             quantity_planned: item.quantity_planned,
             unit_price: item.unit_price,
           }))}
-          members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
+          members={memberOptions}
           canManage={canManageShopping}
+          canRequest={canRequestPurchases}
+          currentMemberId={profile.member_id}
           redirectTo={baseRoute}
         />
 
@@ -543,6 +531,96 @@ export default async function OrganizacaoPage({
               </button>
             )}
           </nav>
+        )}
+      </section>
+      <section className="card section-gap" aria-labelledby="tarefas-delegadas">
+        <div className="card-head">
+          <div>
+            <h2 id="tarefas-delegadas">Tarefas delegadas</h2>
+            <span className="muted-text card-subtitle">
+              Ex.: &quot;resolver a internet até dia 9&quot; ou &quot;todos devem trocar a roupa de cama até dia 20&quot;.
+            </span>
+          </div>
+          {canManageTasks && (
+            <Link className="button primary small" href={`${baseRoute}?nova=1`}>
+              <PlusIcon /> Nova tarefa
+            </Link>
+          )}
+        </div>
+
+        {params.nova === "1" && canManageTasks && (
+          <div style={{ padding: "0 20px 20px" }}>
+            <TaskCreateForm
+              members={(members ?? []).map((member) => ({ id: member.id, name: member.name }))}
+              redirectTo={baseRoute}
+              cancelHref={baseRoute}
+            />
+          </div>
+        )}
+
+        <div className="list">
+          {openTasks.length === 0 && <div className="empty">Nenhuma pendência em aberto.</div>}
+          {openTasks.map((task) => (
+            <div className="list-row" key={task.id} style={{ flexWrap: "wrap" }}>
+              <div className="item-title">
+                <strong>{task.title}</strong>
+                <small>{task.description ?? ""}</small>
+              </div>
+              <div className="item-value">
+                <strong>
+                  {task.due_date
+                    ? new Date(`${task.due_date}T00:00:00`).toLocaleDateString("pt-BR")
+                    : "sem prazo"}
+                </strong>
+                <small>prazo</small>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(task.task_assignees ?? []).map((a) => {
+                  const member = Array.isArray(a.member) ? a.member[0] : a.member;
+                  return (
+                    <TaskMutationForm
+                      key={a.id}
+                      mode="toggle"
+                      assigneeId={a.id}
+                      done={!a.done}
+                      redirectTo={baseRoute}
+                      className={`button small ${a.done ? "secondary" : "ghost"}`}
+                      title={a.done ? "Marcar como pendente" : "Marcar como concluída"}
+                      label={`${a.done ? "✓ " : ""}${member?.name?.split(" ")[0] ?? "Morador"}`}
+                    />
+                  );
+                })}
+                {(task.task_assignees ?? []).length === 0 && (
+                  <span className="muted-text" style={{ fontSize: 12 }}>Sem responsável definido</span>
+                )}
+              </div>
+              {canManageTasks && (
+                <TaskMutationForm
+                  mode="delete"
+                  taskId={task.id}
+                  redirectTo={baseRoute}
+                  className="button danger small"
+                  label="Excluir"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        {doneTasks.length > 0 && (
+          <details className="details-editor" style={{ margin: "0 20px 16px" }}>
+            <summary>Ver {doneTasks.length} tarefa(s) concluída(s)</summary>
+            <div className="editor-body list">
+              {doneTasks.map((task) => (
+                <div className="list-row" key={task.id}>
+                  <div className="item-title">
+                    <strong>{task.title}</strong>
+                  </div>
+                  <span className="status-pill success">Concluída</span>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </section>
     </>

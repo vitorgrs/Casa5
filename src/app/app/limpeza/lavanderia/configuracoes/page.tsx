@@ -14,6 +14,7 @@ import {
   CollectiveWashDeleteForm,
 } from "./collective-wash-forms";
 import { LaundryRotationEditor } from "./laundry-rotation-editor";
+import { loadMemberAbsences } from "@/lib/member-absences";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function LaundrySettingsPage({
     fallback: "/app/limpeza/lavanderia",
   });
   const today = todayIso();
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     { data: versionRows },
     { data: versionMemberRows },
@@ -63,6 +65,7 @@ export default async function LaundrySettingsPage({
         .order("wash_date")
         .limit(30),
     ]);
+  const absences = await absencesPromise;
 
   const memberRowsByVersion = new Map<string, LaundryRotationMember[]>();
   for (const row of versionMemberRows ?? []) {
@@ -120,6 +123,8 @@ export default async function LaundrySettingsPage({
         candidateDate,
         versions,
         overrides,
+        [],
+        absences,
       );
       const firstActiveMember = assignment?.members.find((assigned) =>
         orderedMembers.some((member) => member.id === assigned.id),

@@ -793,5 +793,55 @@ pela própria API. O relatório diário continua sendo a fonte gratuita.
 
 ```bash
 npm run test:wallet        # sugestões de conciliação
+npm run test:rotation      # rodízios com moradores fora de casa
 npm run test:cron-routing  # rotas de cron
 ```
+
+## Atualização: fora de casa, compras para aprovação e notificações
+
+Aplique **antes** do deploy:
+
+```text
+supabase/migrations/038_absences_purchase_requests_notifications.sql
+```
+
+Sem a migration, o app continua funcionando como antes: as ausências ficam
+vazias, o sino mostra zero e o envio de compras por moradores não aparece.
+
+### Morador fora de casa (`/app/moradores`)
+
+Quem tem a permissão **Gerenciar moradores** (o administrador sempre tem)
+marca a saída com a data e, depois, a volta. Enquanto a pessoa está fora:
+
+- **Escala diária e lavanderia** (rodízios por data): a vez anda pulando quem
+  está fora. Na lavanderia com grupos fixos, a pessoa sai do próprio grupo; se
+  o grupo inteiro estiver fora, o turno vai para o grupo seguinte.
+- **Galão, fogão e lava-louça** (rodízios por confirmação): a próxima vez pula
+  quem está fora e, se a pessoa da vez sair, a vez passa para a seguinte. O
+  histórico registra a troca automática.
+- **Mapa da casa**: quem está fora não entra nas equipes sugeridas.
+
+Ninguém sai da ordem: na volta, a pessoa retoma a mesma posição. Saídas podem
+ser agendadas (até um ano) ou retroativas (até 30 dias); cancelar uma saída
+agendada é registrar a volta na própria data de saída. Trocas de dia pendentes
+que envolvem a pessoa no período são canceladas.
+
+### Compras enviadas por moradores (`/app/organizacao`)
+
+Quem não gerencia compras marca na lista o que comprou (ou inclui itens fora
+da lista), escolhe o rateio e envia. A compra só entra nos acertos depois que
+alguém com **Gerenciar lista de compras** aprova em **Aguardando sua
+aprovação**; a aprovação usa a mesma função que já registra compras, então
+rateio, acertos e galão seguem as regras atuais. Recusas podem ter um motivo,
+e quem enviou pode cancelar enquanto estiver pendente.
+
+### Notificações (`/app/notificacoes` e sino no topo)
+
+- Por triggers no banco: despesa com parcela para você, compra dividida com
+  você, tarefa atribuída, troca de dia (pedido e resultado), compra aguardando
+  aprovação e o resultado, saída e volta de moradores, e a sua vez no galão,
+  no fogão, no lava-louça e no mapa da casa.
+- Pelo cron da manhã: quem está na escala do dia e na lavanderia. Como
+  garantia, a mesma rotina roda na primeira abertura do app no dia e também
+  passa a vez de quem saiu de casa em data agendada.
+- Notificações lidas há mais de 60 dias são apagadas automaticamente.

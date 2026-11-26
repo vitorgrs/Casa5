@@ -28,6 +28,7 @@ import {
   type LaundryRotationOverride,
   type LaundryRotationVersion,
 } from "@/lib/laundry-rotation";
+import { loadMemberAbsences } from "@/lib/member-absences";
 
 type MemberRelation = {
   id: string;
@@ -59,6 +60,7 @@ export default async function DashboardPage() {
   const monthDate = new Date(`${referenceMonth}T00:00:00.000Z`);
   const today = todayIso();
 
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     expenseResult,
     walletResult,
@@ -133,6 +135,7 @@ export default async function DashboardPage() {
       .eq("household_id", profile.household_id)
       .order("wash_date"),
   ]);
+  const absences = await absencesPromise;
 
   const expenses = expenseResult.data ?? [];
   const members = membersResult.data ?? [];
@@ -185,6 +188,7 @@ export default async function DashboardPage() {
     settingsResult.data?.start_date ?? null,
     rotationMembers,
     swaps,
+    absences,
   );
   const waterMember = members.find(
     (member) => member.id === waterSettingsResult.data?.current_member_id,
@@ -229,12 +233,14 @@ export default async function DashboardPage() {
     laundryVersions,
     laundryOverrides,
     knownLaundryMembers,
+    absences,
   );
   const currentDrying = laundryDryingAssignmentsForDate(
     today,
     laundryVersions,
     laundryOverrides,
     knownLaundryMembers,
+    absences,
   )[0] ?? null;
   let nextLaundry: { date: string; assignment: LaundryAssignment } | null = null;
   for (let offset = todayLaundry ? 1 : 0; offset <= 370; offset += 1) {
@@ -244,6 +250,7 @@ export default async function DashboardPage() {
       laundryVersions,
       laundryOverrides,
       knownLaundryMembers,
+      absences,
     );
     if (assignment) {
       nextLaundry = { date, assignment };

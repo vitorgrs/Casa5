@@ -14,6 +14,8 @@ import {
   type LaundryRotationVersion,
 } from "@/lib/laundry-rotation";
 import { LaundryDayDialog } from "./laundry-day-dialog";
+import { loadMemberAbsences } from "@/lib/member-absences";
+import { AwayNotice } from "@/components/away-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,7 @@ export default async function LaundryCalendarPage({
     isIsoDate(params.day) && params.day.startsWith(`${month}-`) ? params.day : null;
   const { profile, supabase } = await requirePage("laundry");
 
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     { data: versionRows },
     { data: versionMemberRows },
@@ -89,6 +92,7 @@ export default async function LaundryCalendarPage({
       .lte("wash_date", monthEnd)
       .order("wash_date"),
   ]);
+  const absences = await absencesPromise;
 
   const knownMembers: LaundryRotationMember[] = (householdMembers ?? []).map(
     (member) => ({
@@ -134,10 +138,10 @@ export default async function LaundryCalendarPage({
   while (cells.length % 7 !== 0) cells.push(null);
 
   const selectedAssignment = selectedDay
-    ? laundryAssignmentsForDate(selectedDay, versions, overrides, knownMembers)
+    ? laundryAssignmentsForDate(selectedDay, versions, overrides, knownMembers, absences)
     : null;
   const selectedDryings = selectedDay
-    ? laundryDryingAssignmentsForDate(selectedDay, versions, overrides, knownMembers)
+    ? laundryDryingAssignmentsForDate(selectedDay, versions, overrides, knownMembers, absences)
     : [];
   const selectedCollective = selectedDay
     ? collectiveByDay.get(selectedDay) ?? []
@@ -168,6 +172,9 @@ export default async function LaundryCalendarPage({
       </div>
 
       <CasaEmDiaTabs active="lavanderia" profile={profile} />
+
+
+      <AwayNotice members={householdMembers ?? []} absences={absences} today={today} />
 
       {params.success && <div className="message success">{params.success}</div>}
       {params.error && <div className="message error">{params.error}</div>}
@@ -224,12 +231,14 @@ export default async function LaundryCalendarPage({
               versions,
               overrides,
               knownMembers,
+              absences,
             );
             const dryings = laundryDryingAssignmentsForDate(
               iso,
               versions,
               overrides,
               knownMembers,
+              absences,
             );
             const collective = collectiveByDay.get(iso) ?? [];
             const hasContent = Boolean(assignment || dryings.length || collective.length);

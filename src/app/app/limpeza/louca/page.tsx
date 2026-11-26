@@ -6,6 +6,8 @@ import {
   type StoveCleaningHistoryEntry,
   type StoveCleaningMember,
 } from "../stove-cleaning-manager";
+import { todayIso } from "@/lib/chore-rotation";
+import { awayMemberIds, loadMemberAbsences } from "@/lib/member-absences";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,7 @@ export default async function DishRackCleaningPage() {
   const { profile, supabase } = await requirePage("dish_rack");
 
   // A ordem vem do rodízio do fogão; pessoa da vez e histórico são próprios.
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     { data: members, error: membersError },
     { data: settings, error: settingsError },
@@ -45,6 +48,7 @@ export default async function DishRackCleaningPage() {
       .order("id", { ascending: false })
       .limit(12),
   ]);
+  const absences = await absencesPromise;
 
   const availableMembers = (members ?? []) as StoveCleaningMember[];
   const memberById = new Map(
@@ -92,6 +96,7 @@ export default async function DishRackCleaningPage() {
       <CasaEmDiaTabs active="louca" profile={profile} />
 
       <StoveCleaningManager
+        awayMemberIds={[...awayMemberIds(todayIso(), absences)]}
         variant="dish-rack"
         initialMembers={rotationMembers}
         availableMembers={availableMembers}

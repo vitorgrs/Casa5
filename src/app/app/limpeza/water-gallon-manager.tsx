@@ -162,6 +162,7 @@ export function WaterGallonManager({
   canManage,
   configurationReady,
   loadError,
+  awayMemberIds = [],
 }: {
   initialMembers: WaterGallonMember[];
   currentMemberId: string | null;
@@ -171,6 +172,8 @@ export function WaterGallonManager({
   canManage: boolean;
   configurationReady: boolean;
   loadError: string | null;
+  /** Moradores fora de casa hoje: continuam na ordem, mas são pulados. */
+  awayMemberIds?: string[];
 }) {
   const [draftMembers, setDraftMembers] = useState(initialMembers);
   const [selectedCurrentId, setSelectedCurrentId] = useState(
@@ -222,10 +225,14 @@ export function WaterGallonManager({
     const index = initialMembers.findIndex(
       (member) => member.id === currentMemberId,
     );
-    return index < 0
-      ? null
-      : initialMembers[(index + 1) % initialMembers.length];
-  }, [configurationReady, currentMemberId, initialMembers]);
+    if (index < 0) return null;
+    // Mesma regra de public.next_water_gallon_member: pula quem está fora.
+    for (let step = 1; step <= initialMembers.length; step += 1) {
+      const candidate = initialMembers[(index + step) % initialMembers.length];
+      if (!awayMemberIds.includes(candidate.id)) return candidate;
+    }
+    return initialMembers[(index + 1) % initialMembers.length];
+  }, [awayMemberIds, configurationReady, currentMemberId, initialMembers]);
 
   function move(index: number, direction: -1 | 1) {
     const targetIndex = index + direction;
@@ -361,7 +368,7 @@ export function WaterGallonManager({
         >
           {initialMembers.map((member, index) => (
             <div
-              className={`water-rotation-person ${member.id === currentMemberId ? "current" : ""}`}
+              className={`water-rotation-person ${member.id === currentMemberId ? "current" : ""} ${awayMemberIds.includes(member.id) ? "away" : ""}`}
               key={member.id}
               role="listitem"
               aria-current={member.id === currentMemberId ? "step" : undefined}
@@ -371,6 +378,9 @@ export function WaterGallonManager({
                 {member.initials}
               </div>
               <strong>{member.name.split(" ")[0]}</strong>
+              {awayMemberIds.includes(member.id) && (
+                <small className="away-tag">Fora de casa</small>
+              )}
             </div>
           ))}
         </div>
