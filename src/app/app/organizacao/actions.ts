@@ -746,3 +746,203 @@ export async function settleZeroShoppingBalanceAsAdmin(formData: FormData) {
     `${pathOf(returnTo)}?success=${encodeURIComponent("Acerto compensado pelo administrador.")}`,
   );
 }
+
+// ----------------------------------------------------------------------
+// Compras enviadas por moradores para aprovação
+// ----------------------------------------------------------------------
+
+function revalidateShoppingRequestPaths(returnTo: string) {
+  revalidatePath(pathOf(returnTo));
+  revalidatePath("/app/eu");
+  revalidatePath("/app/limpeza/agua");
+  revalidatePath("/app", "layout");
+}
+
+export async function submitShoppingPurchaseRequest(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
+  const returnTo = destination(formData, "/app/organizacao");
+  const signal = AbortSignal.timeout(SHOPPING_PURCHASE_TIMEOUT_MS);
+  try {
+    const { profile, supabase } = await requireActiveProfile(signal);
+    if (!profile.member_id) {
+      return {
+        status: "error",
+        message: "Sua conta precisa estar vinculada a um morador para enviar compras.",
+      };
+    }
+
+    const listItemIds = Array.from(
+      new Set(formData.getAll("selected_item_ids").map(String).filter(Boolean)),
+    );
+    const listQuantities = listItemIds.map((itemId) =>
+      decimalHundredths(formData.get(`quantity_${itemId}`)),
+    );
+    const listPrices = listItemIds.map((itemId) =>
+      decimalHundredths(formData.get(`unit_price_${itemId}`)),
+    );
+
+    const extraNames = formData.getAll("extra_name").map((value) => String(value).trim());
+    const extraQuantities = formData.getAll("extra_quantity").map((value) => decimalHundredths(value));
+    const extraPrices = formData.getAll("extra_unit_price").map((value) => decimalHundredths(value));
+    // Linhas totalmente vazias são ignoradas (o morador pode ter clicado em
+    // "adicionar item" sem preencher).
+    const extras = extraNames
+      .map((name, index) => ({
+        name,
+        quantity: extraQuantities[index] ?? null,
+        price: extraPrices[index] ?? null,
+      }))
+      .filter((item) => item.name || item.quantity !== null || item.price !== null);
+
+    if (listItemIds.length + extras.length === 0) {
+      return { status: "error", message: "Inclua pelo menos um item na compra." };
+    }
+    if (
+      listQuantities.some((value) => value === null || value <= 0) ||
+      extras.some((item) => item.quantity === null || item.quantity <= 0)
+    ) {
+      return { status: "error", message: "Informe uma quantidade válida para todos os itens." };
+    }
+    if (
+      listPrices.some((value) => value === null || value < 0) ||
+      extras.some((item) => item.price === null || item.price < 0)
+    ) {
+      return { status: "error", message: "Informe o valor unitário de todos os itens." };
+    }
+    if (extras.some((item) => !item.name || item.name.length > 120)) {
+      return { status: "error", message: "Informe o nome de cada item novo (até 120 caracteres)." };
+    }
+
+    const scope = String(formData.get("purchase_scope") ?? "");
+    const splitMode = String(formData.get("split_mode") ?? "equal");
+    const participantIds = Array.from(
+      new Set(formData.getAll("participant_ids").map(String).filter(Boolean)),
+    );
+    if (!["household", "group", "individual"].includes(scope)) {
+      return { status: "error", message: "Escolha para quem foi a compra." };
+    }
+    if (!["equal", "custom"].includes(splitMode)) {
+      return { status: "error", message: "Tipo de divisão inválido." };
+    }
+
+    let customShareCents: Record<string, number> | null = null;
+    if (splitMode === "custom") {
+      customShareCents = {};
+      for (const participantId of participantIds) {
+        const amountCents = decimalHundredths(formData.get(`share_${participantId}`));
+        if (amountCents === null || amountCents < 0) {
+          return { status: "error", message: "Informe um valor válido para cada participante." };
+        }
+        customShareCents[participantId] = amountCents;
+      }
+    }
+
+    const note = String(formData.get("request_note") ?? "").trim();
+    if (note.length > 300) {
+      return { status: "error", message: "A observação deve ter no máximo 300 caracteres." };
+    }
+
+    const { error } = await supabase
+      .rpc("submit_shopping_purchase_request", {
+        list_item_ids: listItemIds,
+        list_quantities: listQuantities.map((value) => (value ?? 0) / 100),
+        list_unit_prices: listPrices.map((value) => (value ?? 0) / 100),
+        extra_item_names: extras.map((item) => item.name),
+        extra_quantities: extras.map((item) => (item.quantity ?? 0) / 100),
+        extra_unit_prices: extras.map((item) => (item.price ?? 0) / 100),
+        selected_scope: scope,
+        participant_member_ids: participantIds,
+        selected_split_mode: splitMode,
+        custom_share_cents: customShareCents,
+        request_note: note || null,
+      })
+      .abortSignal(signal);
+    signal.throwIfAborted();
+    if (error) return { status: "error", message: error.message };
+
+    revalidateShoppingRequestPaths(returnTo);
+    return {
+      status: "success",
+      message: "Compra enviada. Ela entra nos acertos assim que o administrador aprovar.",
+    };
+  } catch (error) {
+    unstable_rethrow(error);
+    if (signal.aborted) {
+      return {
+        status: "error",
+        message: "O envio demorou além do esperado e foi cancelado. Os itens foram mantidos; tente novamente.",
+      };
+    }
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível enviar a compra.",
+    };
+  }
+}
+
+export async function reviewShoppingPurchaseRequest(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
+  const returnTo = destination(formData, "/app/organizacao");
+  try {
+    const { supabase } = await requirePermission("manage_shopping");
+    const requestId = String(formData.get("request_id") ?? "");
+    const decision = String(formData.get("decision") ?? "");
+    const note = String(formData.get("review_note") ?? "").trim();
+    if (!requestId || !["approve", "reject"].includes(decision)) {
+      return { status: "error", message: "Revisão inválida." };
+    }
+    if (note.length > 300) {
+      return { status: "error", message: "O motivo deve ter no máximo 300 caracteres." };
+    }
+
+    const { error } = await supabase.rpc("review_shopping_purchase_request", {
+      target_request_id: requestId,
+      approve: decision === "approve",
+      decision_note: note || null,
+    });
+    if (error) return { status: "error", message: error.message };
+
+    revalidateShoppingRequestPaths(returnTo);
+    return {
+      status: "success",
+      message:
+        decision === "approve"
+          ? "Compra aprovada e registrada nos acertos."
+          : "Compra recusada. Quem enviou foi avisado.",
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível revisar a compra.",
+    };
+  }
+}
+
+export async function cancelShoppingPurchaseRequest(
+  _previousState: FormActionState,
+  formData: FormData,
+): Promise<FormActionState> {
+  const returnTo = destination(formData, "/app/organizacao");
+  try {
+    const { supabase } = await requireActiveProfile();
+    const requestId = String(formData.get("request_id") ?? "");
+    if (!requestId) return { status: "error", message: "Compra inválida." };
+
+    const { error } = await supabase.rpc("cancel_shopping_purchase_request", {
+      target_request_id: requestId,
+    });
+    if (error) return { status: "error", message: error.message };
+
+    revalidateShoppingRequestPaths(returnTo);
+    return { status: "success", message: "Envio cancelado." };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Não foi possível cancelar o envio.",
+    };
+  }
+}

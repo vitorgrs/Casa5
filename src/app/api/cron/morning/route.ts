@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { runDailyChoreReminder } from "@/lib/chore-reminders";
 import { todayIso } from "@/lib/chore-rotation";
 import { runDailyLaundryReminder } from "@/lib/laundry-reminders";
+import { syncDailyDutyNotifications } from "@/lib/notifications";
 import { createServiceClient } from "@/lib/supabase/service";
 
 // Cada chamada ao provedor tem timeout de 15 s; 60 s deixa margem para as
@@ -22,11 +23,14 @@ export async function GET(request: Request) {
   try {
     const householdId = "11111111-1111-1111-1111-111111111111";
     const supabase = createServiceClient();
+    // A rotina das notificações vem antes dos e-mails porque também passa a
+    // vez de quem está fora de casa nos rodízios por confirmação.
+    const notifications = await syncDailyDutyNotifications(supabase, householdId);
     const [choreReminder, laundryReminder] = await Promise.all([
       runDailyChoreReminder(supabase, householdId),
       runDailyLaundryReminder(supabase, householdId),
     ]);
-    const ok = choreReminder.ok && laundryReminder.ok;
+    const ok = choreReminder.ok && laundryReminder.ok && notifications.ok;
 
     const { error: eventError } = await supabase.from("system_events").insert({
       household_id: householdId,
@@ -34,8 +38,8 @@ export async function GET(request: Request) {
       title: ok
         ? "Lembretes da manhã processados"
         : "Lembretes da manhã com falha",
-      detail: `${choreReminder.message} ${laundryReminder.message}`,
-      metadata: { ok, choreReminder, laundryReminder },
+      detail: `${choreReminder.message} ${laundryReminder.message} ${notifications.message}`,
+      metadata: { ok, choreReminder, laundryReminder, notifications },
     });
     if (eventError) {
       throw new Error(`Não foi possível registrar a execução: ${eventError.message}`);
@@ -47,6 +51,7 @@ export async function GET(request: Request) {
         date: todayIso(),
         choreReminder,
         laundryReminder,
+        notifications,
       },
       { status: ok ? 200 : 500 },
     );

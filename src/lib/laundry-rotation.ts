@@ -1,4 +1,10 @@
-import { addDays, daysBetween } from "@/lib/chore-rotation";
+// Imports relativos com extensão para a função poder ser testada direto pelo Node.
+import { addDays, daysBetween } from "./chore-rotation.ts";
+import {
+  firstAbsenceAffecting,
+  isMemberAway,
+  type MemberAbsence,
+} from "./member-absences.ts";
 
 export const LAUNDRY_ITEM_LABELS = {
   floor_cloths: "Panos de chão",
@@ -166,6 +172,7 @@ export function laundryAssignmentsForDate(
   versions: LaundryRotationVersion[],
   overrides: LaundryRotationOverride[],
   knownMembers: LaundryRotationMember[] = [],
+  absences: readonly MemberAbsence[] = [],
 ): LaundryAssignment | null {
   const manual = overrides.find((item) => item.wash_date === date);
   if (manual) {
@@ -238,8 +245,90 @@ export function laundryAssignmentsForDate(
   const groups = laundryRotationGroups(effectiveVersion);
   if (groups.length === 0) return null;
   const turn = elapsedDays / stepDays;
-  const members = groups[positiveModulo(turn, groups.length)];
+  const members = laundryTurnMembers(
+    effectiveVersion,
+    effectiveAnchorDate,
+    stepDays,
+    turn,
+    groups,
+    absences,
+  );
+  if (members.length === 0) return null;
   return { members, source: "rotation", note: null, version };
+}
+
+/**
+ * Pessoas de um turno da lavanderia considerando quem está fora de casa.
+ * Sem ausências no período, devolve o grupo calculado diretamente. Com
+ * ausências, o rodízio anda turno a turno a partir da primeira ausência:
+ * - grupos fixos (último grupo pode ser menor): o turno vai para o próximo
+ *   grupo com alguém em casa, sem quem está fora; ao voltar, a pessoa
+ *   retoma o próprio grupo;
+ * - fluxo circular: cada turno pega as próximas pessoas presentes na ordem.
+ */
+function laundryTurnMembers(
+  version: LaundryRotationVersion,
+  anchorDate: string,
+  stepDays: number,
+  targetTurn: number,
+  groups: LaundryRotationMember[][],
+  absences: readonly MemberAbsence[],
+): LaundryRotationMember[] {
+  const targetDate = addDays(anchorDate, targetTurn * stepDays);
+  const firstAbsence = firstAbsenceAffecting(
+    new Set(version.members.map((member) => member.id)),
+    anchorDate,
+    targetDate,
+    absences,
+  );
+  if (!firstAbsence) return groups[positiveModulo(targetTurn, groups.length)];
+
+  const firstWalkTurn = Math.ceil(daysBetween(anchorDate, firstAbsence) / stepDays);
+
+  if (version.allow_incomplete_last_group) {
+    let groupIndex = positiveModulo(firstWalkTurn - 1, groups.length);
+    for (let turn = firstWalkTurn; turn <= targetTurn; turn += 1) {
+      const washDate = addDays(anchorDate, turn * stepDays);
+      let assigned: LaundryRotationMember[] = [];
+      for (let step = 1; step <= groups.length; step += 1) {
+        const candidateIndex = (groupIndex + step) % groups.length;
+        const present = groups[candidateIndex].filter(
+          (member) => !isMemberAway(member.id, washDate, absences),
+        );
+        if (present.length > 0) {
+          assigned = present;
+          groupIndex = candidateIndex;
+          break;
+        }
+      }
+      if (turn === targetTurn) return assigned;
+    }
+    return [];
+  }
+
+  const ordered = membersStartingAtAnchor(version);
+  if (ordered.length === 0) return [];
+  const teamSize = normalizedPeoplePerDay(version);
+  let pointer = positiveModulo(firstWalkTurn * teamSize, ordered.length);
+  for (let turn = firstWalkTurn; turn <= targetTurn; turn += 1) {
+    const washDate = addDays(anchorDate, turn * stepDays);
+    const present: LaundryRotationMember[] = [];
+    let lastIndex = -1;
+    for (
+      let offset = 0;
+      offset < ordered.length && present.length < teamSize;
+      offset += 1
+    ) {
+      const index = (pointer + offset) % ordered.length;
+      if (!isMemberAway(ordered[index].id, washDate, absences)) {
+        present.push(ordered[index]);
+        lastIndex = index;
+      }
+    }
+    if (turn === targetTurn) return present;
+    if (lastIndex >= 0) pointer = (lastIndex + 1) % ordered.length;
+  }
+  return [];
 }
 
 export function laundryDryingAssignmentsForDate(
@@ -247,6 +336,7 @@ export function laundryDryingAssignmentsForDate(
   versions: LaundryRotationVersion[],
   overrides: LaundryRotationOverride[],
   knownMembers: LaundryRotationMember[] = [],
+  absences: readonly MemberAbsence[] = [],
 ) {
   const maxGap = versions.reduce(
     (maximum, version) => Math.max(maximum, version.gap_days),
@@ -261,6 +351,7 @@ export function laundryDryingAssignmentsForDate(
       versions,
       overrides,
       knownMembers,
+      absences,
     );
     const gapDays = assignment?.version?.gap_days ?? 0;
     if (assignment && elapsed <= gapDays) {

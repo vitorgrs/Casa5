@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requirePermission } from "@/lib/auth";
+import { assertPageEnabled, requirePermission } from "@/lib/auth";
 
 const BASE_ROUTE = "/app/financeiro";
 
@@ -24,6 +24,7 @@ function refresh() {
 }
 
 export async function reconcileMovement(formData: FormData) {
+  assertPageEnabled("finance");
   const { supabase } = await requirePermission("manage_wallet");
   const movementId = String(formData.get("movement_id") ?? "");
   const shareIds = formData.getAll("share_ids").map(String).filter(Boolean);
@@ -41,6 +42,7 @@ export async function reconcileMovement(formData: FormData) {
 }
 
 export async function undoReconciliation(formData: FormData) {
+  assertPageEnabled("finance");
   const { supabase } = await requirePermission("manage_wallet");
   const movementId = String(formData.get("movement_id") ?? "");
   const { data, error } = await supabase.rpc("undo_wallet_reconciliation", {
@@ -52,6 +54,7 @@ export async function undoReconciliation(formData: FormData) {
 }
 
 export async function setMovementIgnored(formData: FormData) {
+  assertPageEnabled("finance");
   const { profile, supabase } = await requirePermission("manage_wallet");
   const movementId = String(formData.get("movement_id") ?? "");
   const ignored = formData.get("ignored") === "true";

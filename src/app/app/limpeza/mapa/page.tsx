@@ -8,11 +8,13 @@ import {
   type HouseCleaningMode,
   type HouseCleaningMember,
 } from "@/lib/house-cleaning";
+import { todayIso } from "@/lib/chore-rotation";
 import {
   InteractiveHouseMap,
   type HouseMapArea,
   type HouseMapStove,
 } from "./interactive-house-map";
+import { awayMemberIds, loadMemberAbsences } from "@/lib/member-absences";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +62,7 @@ function isPositiveTurn(value: number | string | null | undefined) {
 export default async function InteractiveHouseMapPage() {
   const { profile, supabase } = await requirePage("house_map");
 
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     membersResult,
     areasResult,
@@ -105,7 +108,9 @@ export default async function InteractiveHouseMapPage() {
       .order("id", { ascending: false })
       .limit(12),
   ]);
+  const absences = await absencesPromise;
 
+  const awayToday = awayMemberIds(todayIso(), absences);
   const members = (membersResult.data ?? []).map((member) => ({
     id: member.id,
     name: member.name,
@@ -167,11 +172,28 @@ export default async function InteractiveHouseMapPage() {
       const minCleaners: 1 | 2 = row?.min_cleaners === 2 ? 2 : 1;
       const maxCleaners: 1 | 2 = row?.max_cleaners === 1 ? 1 : 2;
       const currentStartMemberId = row?.current_start_member_id ?? null;
+      // Quem está fora de casa hoje continua na ordem, mas não entra nas
+      // equipes. Se a pessoa inicial estiver fora, a equipe começa na
+      // seguinte presente (o banco faz o mesmo em apply_member_absences).
+      const presentRotationMembers = rotationMembers.filter(
+        (member) => !awayToday.has(member.id),
+      );
+      const startIndex = rotationMembers.findIndex(
+        (member) => member.id === currentStartMemberId,
+      );
+      const effectiveStartMemberId =
+        startIndex < 0 || !awayToday.has(currentStartMemberId ?? "")
+          ? currentStartMemberId
+          : (Array.from(
+              { length: rotationMembers.length },
+              (_, offset) =>
+                rotationMembers[(startIndex + offset) % rotationMembers.length],
+            ).find((member) => !awayToday.has(member.id))?.id ?? null);
       const roundRobinTurn = deriveHouseCleaningTurn(
-        rotationMembers,
+        presentRotationMembers,
         peoplePerTurn,
         allowIncomplete,
-        currentStartMemberId,
+        effectiveStartMemberId,
       );
       const suggestedMembers = (row?.suggested_member_ids ?? []).reduce<
         HouseCleaningMember[]
@@ -179,6 +201,7 @@ export default async function InteractiveHouseMapPage() {
         const member = memberById.get(memberId);
         if (
           member &&
+          !awayToday.has(member.id) &&
           rotationMembers.some((candidate) => candidate.id === member.id) &&
           !selected.some((candidate) => candidate.id === member.id)
         ) {
@@ -196,11 +219,14 @@ export default async function InteractiveHouseMapPage() {
         cleaningMode === "round_robin"
           ? roundRobinTurn.nextMembers
           : suggestedMembers;
-      const currentIndex = rotationMembers.findIndex(
-        (member) => member.id === currentStartMemberId,
+      const currentIndex = presentRotationMembers.findIndex(
+        (member) => member.id === effectiveStartMemberId,
       );
+      // Com alguém fora, os grupos fixos ficam menores e a âncora pode não
+      // coincidir com o início de um grupo; a equipe continua válida.
       const startsValidGroup =
         !allowIncomplete ||
+        presentRotationMembers.length !== rotationMembers.length ||
         (currentIndex >= 0 && currentIndex % peoplePerTurn === 0);
       const baseConfigurationReady = Boolean(
         row &&
@@ -216,7 +242,7 @@ export default async function InteractiveHouseMapPage() {
           Boolean(
             (row?.people_per_turn === 1 || row?.people_per_turn === 2) &&
               peoplePerTurn <= rotationMembers.length &&
-              currentStartMemberId &&
+              effectiveStartMemberId &&
               startsValidGroup &&
               currentMembers.length > 0,
           )) &&
@@ -327,6 +353,17 @@ export default async function InteractiveHouseMapPage() {
       </div>
 
       <CasaEmDiaTabs active="mapa" profile={profile} />
+
+      {awayToday.size > 0 && (
+        <div className="message info" role="status">
+          Fora de casa hoje:{" "}
+          {members
+            .filter((member) => awayToday.has(member.id))
+            .map((member) => member.name.split(" ")[0])
+            .join(", ")}
+          . Essas pessoas não entram nas equipes sugeridas até voltarem.
+        </div>
+      )}
 
       <InteractiveHouseMap
         members={members}

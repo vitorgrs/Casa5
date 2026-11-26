@@ -13,6 +13,7 @@ import {
   type LaundryRotationOverride,
   type LaundryRotationVersion,
 } from "@/lib/laundry-rotation";
+import { loadMemberAbsences } from "@/lib/member-absences";
 
 export type DailyLaundryReminderResult = {
   ok: boolean;
@@ -22,7 +23,7 @@ export type DailyLaundryReminderResult = {
   message: string;
 };
 
-type LaundryDuty = {
+export type LaundryDuty = {
   key: string;
   label: string;
   description: string | null;
@@ -210,11 +211,25 @@ async function sendMemberLaundryReminder(
   }
 }
 
-export async function runDailyLaundryReminder(
+export type LaundryDutiesResult =
+  | {
+      ok: true;
+      dutiesByMember: Map<string, LaundryDuty[]>;
+      membersById: Map<string, ReminderMember>;
+    }
+  | { ok: false; message: string };
+
+/**
+ * Calcula as tarefas de lavanderia de cada morador em uma data: o turno do
+ * rodízio (considerando quem está fora de casa) e as lavagens coletivas com
+ * responsável. Usado pelo e-mail da manhã e pelas notificações no app.
+ */
+export async function loadLaundryDuties(
   supabase: SupabaseClient,
   householdId: string,
-): Promise<DailyLaundryReminderResult> {
-  const reminderDate = todayIso();
+  reminderDate: string,
+): Promise<LaundryDutiesResult> {
+  const absencesPromise = loadMemberAbsences(supabase, householdId);
   const [
     { data: versionRows, error: versionError },
     { data: versionMemberRows, error: versionMemberError },
@@ -249,6 +264,7 @@ export async function runDailyLaundryReminder(
       .eq("household_id", householdId)
       .order("display_order"),
   ]);
+  const absences = await absencesPromise;
 
   const queryError =
     versionError ??
@@ -258,10 +274,7 @@ export async function runDailyLaundryReminder(
     memberError;
   if (queryError) {
     return {
-      ok: false,
-      sent: 0,
-      skippedAlreadySent: 0,
-      failed: 1,
+      ok: false as const,
       message: `Não foi possível preparar os lembretes da lavanderia: ${queryError.message}`,
     };
   }
@@ -303,6 +316,7 @@ export async function runDailyLaundryReminder(
     versions,
     overrides,
     members,
+    absences,
   );
 
   if (assignment) {
@@ -331,6 +345,27 @@ export async function runDailyLaundryReminder(
         wash.note?.trim() || "Lavagem coletiva cadastrada pelo administrador.",
     });
   }
+
+  return { ok: true, dutiesByMember, membersById };
+}
+
+export async function runDailyLaundryReminder(
+  supabase: SupabaseClient,
+  householdId: string,
+): Promise<DailyLaundryReminderResult> {
+  const reminderDate = todayIso();
+  const loaded = await loadLaundryDuties(supabase, householdId, reminderDate);
+  // Sem strictNullChecks o TypeScript não estreita a união por `ok`.
+  if ("message" in loaded) {
+    return {
+      ok: false,
+      sent: 0,
+      skippedAlreadySent: 0,
+      failed: 1,
+      message: loaded.message,
+    };
+  }
+  const { dutiesByMember, membersById } = loaded;
 
   if (dutiesByMember.size === 0) {
     return {

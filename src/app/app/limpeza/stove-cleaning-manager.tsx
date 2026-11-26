@@ -219,6 +219,7 @@ export function StoveCleaningManager({
   canManage,
   configurationReady,
   loadError,
+  awayMemberIds = [],
 }: {
   variant?: CleaningRotationVariant;
   initialMembers: StoveCleaningMember[];
@@ -230,6 +231,8 @@ export function StoveCleaningManager({
   canManage: boolean;
   configurationReady: boolean;
   loadError: string | null;
+  /** Moradores fora de casa hoje: continuam na ordem, mas são pulados. */
+  awayMemberIds?: string[];
 }) {
   const config = ROTATION_VARIANTS[variant];
   const RotationIcon = config.Icon;
@@ -282,10 +285,15 @@ export function StoveCleaningManager({
     const currentIndex = initialMembers.findIndex(
       (member) => member.id === currentMemberId,
     );
-    return currentIndex < 0
-      ? null
-      : initialMembers[(currentIndex + 1) % initialMembers.length];
-  }, [configurationReady, currentMemberId, initialMembers]);
+    if (currentIndex < 0) return null;
+    // Mesma regra de public.next_stove_cleaning_member: pula quem está fora.
+    for (let step = 1; step <= initialMembers.length; step += 1) {
+      const candidate =
+        initialMembers[(currentIndex + step) % initialMembers.length];
+      if (!awayMemberIds.includes(candidate.id)) return candidate;
+    }
+    return initialMembers[(currentIndex + 1) % initialMembers.length];
+  }, [awayMemberIds, configurationReady, currentMemberId, initialMembers]);
   const membersOutsideRotation = useMemo(() => {
     const participantIds = new Set(draftMembers.map((member) => member.id));
     return availableMembers.filter((member) => !participantIds.has(member.id));
@@ -427,7 +435,7 @@ export function StoveCleaningManager({
         >
           {initialMembers.map((member, index) => (
             <div
-              className={`stove-rotation-person ${member.id === currentMemberId ? "current" : ""}`}
+              className={`stove-rotation-person ${member.id === currentMemberId ? "current" : ""} ${awayMemberIds.includes(member.id) ? "away" : ""}`}
               key={member.id}
               role="listitem"
               aria-current={member.id === currentMemberId ? "step" : undefined}
@@ -437,6 +445,9 @@ export function StoveCleaningManager({
                 {member.initials}
               </div>
               <strong>{shortMemberName(member.name)}</strong>
+              {awayMemberIds.includes(member.id) && (
+                <small className="away-tag">Fora de casa</small>
+              )}
             </div>
           ))}
         </div>

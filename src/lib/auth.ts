@@ -3,6 +3,7 @@ import {
   canSeePage,
   firstVisiblePage,
   hasPermission,
+  isPageDisabled,
   type PageKey,
   type PermissionKey,
 } from "@/lib/permissions";
@@ -77,6 +78,14 @@ export async function requirePermission(perm: PermissionKey, signal?: AbortSigna
     throw new Error("Você não tem permissão para fazer isso. Peça ao administrador para liberar o acesso em Configurações > Permissões.");
   }
   return result;
+}
+
+// Bloqueia server actions de páginas desativadas para todos (DISABLED_PAGES),
+// já que a action continua acessível por POST mesmo sem a página no menu.
+export function assertPageEnabled(page: PageKey) {
+  if (isPageDisabled(page)) {
+    throw new Error("Esta funcionalidade está desativada no momento.");
+  }
 }
 
 // Usada no topo de cada página. A checagem precisa ficar na página (e não no

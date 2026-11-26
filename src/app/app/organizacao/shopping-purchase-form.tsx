@@ -13,6 +13,7 @@ import {
   recordShoppingPurchase,
   removeItemFromShoppingPurchase,
   resetShoppingPurchase,
+  submitShoppingPurchaseRequest,
   toggleShoppingChecked,
   updateShoppingItem,
 } from "./actions";
@@ -87,6 +88,17 @@ function resetShoppingPurchaseWithTimeout(
 ) {
   return runShoppingMutationWithTimeout(
     resetShoppingPurchase,
+    previousState,
+    formData,
+  );
+}
+
+function submitShoppingPurchaseRequestWithTimeout(
+  previousState: FormActionState,
+  formData: FormData,
+) {
+  return runShoppingMutationWithTimeout(
+    submitShoppingPurchaseRequest,
     previousState,
     formData,
   );
@@ -184,14 +196,22 @@ export function ShoppingListManager({
   items,
   members,
   canManage,
+  canRequest = false,
+  currentMemberId = null,
   redirectTo,
 }: {
   items: ShoppingItem[];
   members: Member[];
   canManage: boolean;
+  /** Morador sem permissão de compras: envia a compra para aprovação. */
+  canRequest?: boolean;
+  currentMemberId?: string | null;
   redirectTo: string;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const mode: "record" | "request" = canManage ? "record" : "request";
+  const canSelect = canManage || canRequest;
 
   useEffect(() => {
     const availableIds = new Set(items.map((item) => item.id));
@@ -212,10 +232,26 @@ export function ShoppingListManager({
   return (
     <>
       <div className="shopping-toolbar">
-        <div className="shopping-selection-count">
+        <div className="shopping-selection-count" aria-live="polite">
           <strong>{selectedIds.length}</strong>
           <span>item(ns) selecionado(s)</span>
         </div>
+        {canSelect && (
+          <span className="muted-text shopping-toolbar-hint">
+            {mode === "request"
+              ? "Marque o que você comprou ou registre itens fora da lista."
+              : "Marque os itens comprados para registrar a compra."}
+          </span>
+        )}
+        {mode === "request" && canRequest && selectedIds.length === 0 && !requestOpen && (
+          <button
+            type="button"
+            className="button secondary small"
+            onClick={() => setRequestOpen(true)}
+          >
+            <PlusIcon /> Compra fora da lista
+          </button>
+        )}
       </div>
 
       <div className="shopping-select-list">
@@ -227,7 +263,8 @@ export function ShoppingListManager({
                 type="checkbox"
                 checked={selectedIds.includes(item.id)}
                 onChange={() => toggleSelected(item.id)}
-                disabled={!canManage}
+                disabled={!canSelect}
+                aria-label={`Selecionar ${item.name}`}
               />
               <span className="item-title">
                 <strong>{item.name}</strong>
@@ -263,13 +300,21 @@ export function ShoppingListManager({
         ))}
       </div>
 
-      {canManage && selectedItems.length > 0 && (
+      {canSelect && (selectedItems.length > 0 || requestOpen) && (
         <PurchaseCheckoutForm
+          mode={mode}
           items={selectedItems}
           members={members}
+          currentMemberId={currentMemberId}
           redirectTo={redirectTo}
-          onCancel={() => setSelectedIds([])}
-          onSuccess={() => setSelectedIds([])}
+          onCancel={() => {
+            setSelectedIds([]);
+            setRequestOpen(false);
+          }}
+          onSuccess={() => {
+            setSelectedIds([]);
+            setRequestOpen(false);
+          }}
         />
       )}
     </>
@@ -368,22 +413,33 @@ function ShoppingItemDeleteForm({
   );
 }
 
+type ExtraItemDraft = { key: number; name: string; quantity: string; unitPrice: string };
+
 function PurchaseCheckoutForm({
+  mode,
   items,
   members,
+  currentMemberId,
   redirectTo,
   onCancel,
   onSuccess,
 }: {
+  mode: "record" | "request";
   items: ShoppingItem[];
   members: Member[];
+  currentMemberId: string | null;
   redirectTo: string;
   onCancel: () => void;
   onSuccess: () => void;
 }) {
+  const isRequest = mode === "request";
   const [state, formAction] = useActionState(
-    recordShoppingPurchaseWithTimeout,
+    isRequest ? submitShoppingPurchaseRequestWithTimeout : recordShoppingPurchaseWithTimeout,
     initialFormActionState,
+  );
+  // Itens que não estavam na lista (somente no envio para aprovação).
+  const [extraItems, setExtraItems] = useState<ExtraItemDraft[]>(() =>
+    isRequest && items.length === 0 ? [{ key: 1, name: "", quantity: "1", unitPrice: "" }] : [],
   );
   const [scope, setScope] = useState<PurchaseScope>("household");
   const [splitMode, setSplitMode] = useState<SplitMode>("equal");
@@ -423,16 +479,45 @@ function PurchaseCheckoutForm({
     onSuccess();
   }, [state, onSuccess]);
 
-  const purchaseTotalCents = items.reduce(
-    (sum, item) =>
-      sum +
-      Math.round(
-        (hundredthsFromInput(quantities[item.id] ?? "0") *
-          hundredthsFromInput(unitPrices[item.id] ?? "0")) /
-          100,
-      ),
-    0,
-  );
+  const purchaseTotalCents =
+    items.reduce(
+      (sum, item) =>
+        sum +
+        Math.round(
+          (hundredthsFromInput(quantities[item.id] ?? "0") *
+            hundredthsFromInput(unitPrices[item.id] ?? "0")) /
+            100,
+        ),
+      0,
+    ) +
+    extraItems.reduce(
+      (sum, item) =>
+        sum +
+        Math.round(
+          (hundredthsFromInput(item.quantity || "0") *
+            hundredthsFromInput(item.unitPrice || "0")) /
+            100,
+        ),
+      0,
+    );
+
+  function updateExtraItem(key: number, patch: Partial<ExtraItemDraft>) {
+    setExtraItems((current) =>
+      current.map((item) => (item.key === key ? { ...item, ...patch } : item)),
+    );
+  }
+
+  function addExtraItem() {
+    setExtraItems((current) => [
+      ...current,
+      {
+        key: Math.max(0, ...current.map((item) => item.key)) + 1,
+        name: "",
+        quantity: "1",
+        unitPrice: "",
+      },
+    ]);
+  }
   const purchaseTotal = purchaseTotalCents / 100;
   const selectedMembers = members.filter((member) => participants.includes(member.id));
   const customTotalCents = selectedMembers.reduce(
@@ -464,8 +549,18 @@ function PurchaseCheckoutForm({
         ))}
 
         <div>
-          <span className="eyebrow">Registrar compra</span>
-          <h3 style={{ margin: "5px 0 0" }}>Valores dos itens selecionados</h3>
+          <span className="eyebrow">
+            {isRequest ? "Enviar compra para aprovação" : "Registrar compra"}
+          </span>
+          <h3 className="form-title">
+            {isRequest ? "O que você comprou?" : "Valores dos itens selecionados"}
+          </h3>
+          {isRequest && (
+            <p className="note">
+              A compra só entra nos acertos depois que o administrador aprovar.
+              Você recebe uma notificação com o resultado.
+            </p>
+          )}
         </div>
 
         <div className="purchase-item-values">
@@ -524,6 +619,67 @@ function PurchaseCheckoutForm({
           })}
         </div>
 
+        {isRequest && (
+          <div className="form-section">
+            <h4>Itens fora da lista</h4>
+            {extraItems.length === 0 && (
+              <p className="note">Comprou algo que não estava na lista? Inclua aqui.</p>
+            )}
+            <div className="purchase-item-values">
+              {extraItems.map((item, index) => (
+                <div className="purchase-item-value-row extra-item-row" key={item.key}>
+                  <label className="field">
+                    Item {index + 1}
+                    <input
+                      name="extra_name"
+                      value={item.name}
+                      maxLength={120}
+                      placeholder="Ex.: Detergente…"
+                      autoComplete="off"
+                      onChange={(event) => updateExtraItem(item.key, { name: event.target.value })}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    Quantidade
+                    <input
+                      name="extra_quantity"
+                      inputMode="decimal"
+                      value={item.quantity}
+                      onChange={(event) => updateExtraItem(item.key, { quantity: event.target.value })}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    Valor unitário
+                    <input
+                      name="extra_unit_price"
+                      inputMode="decimal"
+                      value={item.unitPrice}
+                      placeholder="0,00"
+                      onChange={(event) => updateExtraItem(item.key, { unitPrice: event.target.value })}
+                      required
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="button ghost small"
+                    onClick={() =>
+                      setExtraItems((current) => current.filter((entry) => entry.key !== item.key))
+                    }
+                    aria-label={`Remover item ${index + 1}`}
+                  >
+                    Remover
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button type="button" className="button secondary small" onClick={addExtraItem}>
+              <PlusIcon /> Adicionar item
+            </button>
+          </div>
+        )}
+
         <div className="purchase-total-preview">
           <span>Total desta compra</span>
           <strong>
@@ -534,20 +690,27 @@ function PurchaseCheckoutForm({
           </strong>
         </div>
 
-        <label className="field">
-          Quem pagou a compra inteira?
-          <select
-            name="paid_by_member_id"
-            required
-            value={payerMemberId}
-            onChange={(event) => setPayerMemberId(event.target.value)}
-          >
-            <option value="" disabled>Selecione o pagador</option>
-            {members.map((member) => (
-              <option value={member.id} key={member.id}>{member.name}</option>
-            ))}
-          </select>
-        </label>
+        {isRequest ? (
+          <div className="message info">
+            Quem pagou: <strong>{members.find((member) => member.id === currentMemberId)?.name ?? "você"}</strong>.
+            Os outros participantes vão te dever as partes deles.
+          </div>
+        ) : (
+          <label className="field">
+            Quem pagou a compra inteira?
+            <select
+              name="paid_by_member_id"
+              required
+              value={payerMemberId}
+              onChange={(event) => setPayerMemberId(event.target.value)}
+            >
+              <option value="" disabled>Selecione o pagador</option>
+              {members.map((member) => (
+                <option value={member.id} key={member.id}>{member.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="form-section">
           <h4>Para quem foi esta compra?</h4>
@@ -647,10 +810,24 @@ function PurchaseCheckoutForm({
           )}
         </div>
 
+        {isRequest && (
+          <label className="field">
+            Observação para o administrador (opcional)
+            <textarea
+              name="request_note"
+              maxLength={300}
+              rows={2}
+              placeholder="Ex.: comprei no mercado da esquina…"
+            />
+          </label>
+        )}
+
         <FormActionMessage state={state} />
-        <div className="form-actions">
-          <SubmitButton pendingLabel="Salvando compra...">Registrar compra</SubmitButton>
-          <button className="button ghost" type="button" onClick={onCancel}>Cancelar seleção</button>
+        <div className="form-actions sticky-actions">
+          <SubmitButton pendingLabel={isRequest ? "Enviando…" : "Salvando compra..."}>
+            {isRequest ? "Enviar para aprovação" : "Registrar compra"}
+          </SubmitButton>
+          <button className="button ghost" type="button" onClick={onCancel}>Cancelar</button>
         </div>
       </form>
     </div>

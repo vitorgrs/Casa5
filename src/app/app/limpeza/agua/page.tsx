@@ -6,12 +6,15 @@ import {
   type WaterGallonPayment,
   type WaterGallonSuggestion,
 } from "../water-gallon-manager";
+import { todayIso } from "@/lib/chore-rotation";
+import { awayMemberIds, loadMemberAbsences } from "@/lib/member-absences";
 
 export const dynamic = "force-dynamic";
 
 export default async function WaterGallonPage() {
   const { profile, supabase } = await requirePage("water");
 
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     { data: members, error: membersError },
     { data: settings, error: settingsError },
@@ -46,6 +49,7 @@ export default async function WaterGallonPage() {
       .limit(12),
     supabase.rpc("get_water_gallon_purchase_suggestions"),
   ]);
+  const absences = await absencesPromise;
 
   const orderByMember = new Map(
     (rotationRows ?? []).map((row) => [row.member_id, row.rotation_order]),
@@ -98,6 +102,7 @@ export default async function WaterGallonPage() {
       <CasaEmDiaTabs active="agua" profile={profile} />
 
       <WaterGallonManager
+        awayMemberIds={[...awayMemberIds(todayIso(), absences)]}
         initialMembers={rotationMembers.map(
           ({ rotation_order: _rotationOrder, ...member }) => member,
         )}

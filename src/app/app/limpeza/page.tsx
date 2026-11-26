@@ -21,6 +21,8 @@ import {
   requestDaySwap,
   toggleDailyTaskCompletion,
 } from "./actions";
+import { loadMemberAbsences } from "@/lib/member-absences";
+import { AwayNotice } from "@/components/away-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +82,7 @@ export default async function ChoresPage({
   const { profile, supabase } = await requirePage("chores");
   const canManageTasks = can(profile, "manage_tasks");
 
+  const absencesPromise = loadMemberAbsences(supabase, profile.household_id);
   const [
     { data: settings },
     { data: members },
@@ -136,6 +139,7 @@ export default async function ChoresPage({
       .order("display_order")
       .order("created_at"),
   ]);
+  const absences = await absencesPromise;
 
   const standardTasks = (standardTaskRows ?? []) as StandardDailyTask[];
 
@@ -177,6 +181,7 @@ export default async function ChoresPage({
         settings?.start_date ?? null,
         rotationMembers,
         rotationSwaps,
+        absences,
       )
     : null;
   const selectedTasks = selectedDay ? tasksByDay.get(selectedDay) ?? [] : [];
@@ -211,6 +216,7 @@ export default async function ChoresPage({
             settings?.start_date ?? null,
             rotationMembers,
             rotationSwaps,
+            absences,
           ),
         }))
         .filter(
@@ -241,6 +247,9 @@ export default async function ChoresPage({
       </div>
 
       <CasaEmDiaTabs active="tarefas" profile={profile} />
+
+
+      <AwayNotice members={members ?? []} absences={absences} today={today} />
 
       {params.success && <div className="message success">{params.success}</div>}
       {params.error && <div className="message error">{params.error}</div>}
@@ -273,6 +282,7 @@ export default async function ChoresPage({
               settings?.start_date ?? null,
               rotationMembers,
               rotationSwaps,
+              absences,
             );
             const completedCount = standardTasks.filter((task) =>
               completedKeys.has(`${iso}:${task.task_key}`),
