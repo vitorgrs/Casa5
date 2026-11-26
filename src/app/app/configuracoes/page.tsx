@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClockIcon, SettingsIcon, WalletIcon } from "@/components/icons";
 import { SubmitButton } from "@/components/submit-button";
 import { can, requirePage } from "@/lib/auth";
+import { isPageDisabled } from "@/lib/permissions";
 import { emailConfigured, emailProviderName } from "@/lib/email";
 import {
   asNumber,
@@ -149,9 +150,11 @@ export default async function SettingsPage({
                   : `Saldo informado manualmente em ${formatHouseDateTime(latest.observed_at)}`
                 : "Configure o token e solicite a primeira sincronização."}
             </div>
-            <Link className="button ghost small" href="/app/financeiro" style={{ marginTop: 16 }}>
-              Ver extrato e conciliar Pix
-            </Link>
+            {!isPageDisabled("finance") && (
+              <Link className="button ghost small" href="/app/financeiro" style={{ marginTop: 16 }}>
+                Ver extrato e conciliar Pix
+              </Link>
+            )}
             {can(profile, "manage_wallet") && (
               <form action={syncMercadoPago} style={{ marginTop: 22 }}>
                 <SubmitButton

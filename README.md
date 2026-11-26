@@ -855,3 +855,14 @@ e quem enviou pode cancelar enquanto estiver pendente.
   link "Pular para o conteúdo" e tipografia mínima legível.
 - Controles longos (pagamento de parcelas, explicação dos acertos, meses
   antigos, edição de moradores) ficam recolhidos e abrem com um toque.
+
+## Páginas desativadas temporariamente
+
+**Conta da casa** (`/app/financeiro`) e **Reclamações** (`/app/reclamacoes`)
+estão fora do ar para todos, inclusive o administrador. Nada foi apagado: as
+rotas, as tabelas e os dados continuam no lugar, e o cron segue sincronizando
+o Mercado Pago. As páginas somem do menu, quem abre o endereço é levado à
+primeira página permitida e as ações dessas telas recusam chamadas.
+
+Para reativar, remova a chave correspondente (`finance` ou `complaints`) de
+`DISABLED_PAGES` em `src/lib/permissions.ts`.

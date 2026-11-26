@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireActiveProfile } from "@/lib/auth";
+import { assertPageEnabled, requireActiveProfile } from "@/lib/auth";
 import type { FormActionState } from "@/lib/form-action-state";
 
 export async function submitAnonymousComplaint(
@@ -19,6 +19,7 @@ export async function submitAnonymousComplaint(
   }
 
   try {
+    assertPageEnabled("complaints");
     const { supabase } = await requireActiveProfile();
     const { data, error } = await supabase.rpc("submit_anonymous_complaint", {
       complaint_subject: subject,

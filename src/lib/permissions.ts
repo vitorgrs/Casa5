@@ -182,6 +182,17 @@ export type PageKey = (typeof PAGE_CATALOG)[number]["key"];
 
 export const PAGE_KEYS = PAGE_CATALOG.map((page) => page.key);
 
+// Páginas desativadas temporariamente para TODOS, inclusive o administrador.
+// O código, as rotas e os dados continuam no lugar: a página só some do menu
+// e quem abrir o endereço é levado à primeira página permitida. As server
+// actions dessas páginas também recusam chamadas. Para reativar, remova a
+// chave desta lista.
+export const DISABLED_PAGES: readonly PageKey[] = ["finance", "complaints"];
+
+export function isPageDisabled(page: PageKey) {
+  return DISABLED_PAGES.includes(page);
+}
+
 export function isPermissionKey(value: string): value is PermissionKey {
   return (PERMISSION_KEYS as string[]).includes(value);
 }
@@ -211,6 +222,7 @@ export function hasPermission(profile: AccessProfile, permission: PermissionKey)
 }
 
 export function canSeePage(profile: AccessProfile, page: PageKey) {
+  if (isPageDisabled(page)) return false;
   if (profile.role === "admin") return true;
   return !(profile.hidden_pages ?? []).includes(page);
 }

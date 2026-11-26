@@ -8,6 +8,7 @@ import {
   PERMISSION_GROUPS,
   PERMISSION_KEYS,
   PERMISSION_PAGE,
+  isPageDisabled,
   type PageKey,
   type PermissionKey,
 } from "@/lib/permissions";
@@ -35,7 +36,10 @@ export function AccessEditor({
   const unreachable = useMemo(
     () =>
       PERMISSION_KEYS.filter(
-        (key) => granted.has(key) && !visible.has(PERMISSION_PAGE[key]),
+        (key) =>
+          granted.has(key) &&
+          !visible.has(PERMISSION_PAGE[key]) &&
+          !isPageDisabled(PERMISSION_PAGE[key]),
       ),
     [granted, visible],
   );
@@ -120,23 +124,40 @@ export function AccessEditor({
           </legend>
           <p className="note">
             Páginas desmarcadas somem do menu e, se abertas pelo endereço, levam
-            para a primeira página permitida.
+            para a primeira página permitida. Páginas marcadas como desativadas
+            estão fora do ar para todos; a escolha feita aqui volta a valer
+            quando forem reativadas.
           </p>
           <div className="permission-grid">
-            {PAGE_CATALOG.map((page) => (
-              <label className="permission-row access-page-row" key={page.key}>
-                <input
-                  type="checkbox"
-                  name={`page_${page.key}`}
-                  checked={visible.has(page.key)}
-                  onChange={() => toggle(visible, page.key, setVisible)}
-                />
-                <span>
-                  <strong>{page.label}</strong>
-                  <small>{page.href}</small>
-                </span>
-              </label>
-            ))}
+            {PAGE_CATALOG.map((page) => {
+              const disabled = isPageDisabled(page.key);
+              return (
+                <label
+                  className={`permission-row access-page-row ${disabled ? "is-disabled" : ""}`}
+                  key={page.key}
+                >
+                  <input
+                    type="checkbox"
+                    name={disabled ? undefined : `page_${page.key}`}
+                    checked={visible.has(page.key)}
+                    disabled={disabled}
+                    onChange={() => toggle(visible, page.key, setVisible)}
+                  />
+                  {/* Checkbox desativado não é enviado: o campo oculto preserva
+                      a escolha atual para quando a página for reativada. */}
+                  {disabled && visible.has(page.key) && (
+                    <input type="hidden" name={`page_${page.key}`} value="on" />
+                  )}
+                  <span>
+                    <strong>
+                      {page.label}
+                      {disabled && <small className="tag">Desativada para todos</small>}
+                    </strong>
+                    <small>{page.href}</small>
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </fieldset>
       </div>
